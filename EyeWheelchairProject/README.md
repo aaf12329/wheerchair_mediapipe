@@ -271,15 +271,11 @@ Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
    `camera_preview.py` 与 `landmarks_preview.py` 只用英文，不依赖中文字体。
 7. `data/raw_videos/` 里 2026-09-16 的录像文件都是 0 字节空壳（当时录屏未写入成功），已从版本库中删除。
 
-### 有意保留的行为边界
+### 当前分支的方向确认
 
-下面三条是系统当前的真实行为边界，属于"已知、暂时不动"——改动它们需要单独评估
-（本次重构的验收标准是"行为不变"，所以一处都没有调）：
-
-- 一直盯着屏幕正中间**不会**产生候选：候选的计时只在**方向发生变化**时开始，而初始方向本来就是"中"。
-- 进入"等待眨眼"后把视线移开**不会取消**已选中的方向，必须眨一次眼（或人脸丢失）才能退出该状态。
-- 在 30fps 下，只闭 1 帧也会被 3 帧平滑拉长成约 0.10 秒的闭眼，因此可能被计为一次眨眼
-  （`MIN_CLOSED_SECONDS = 0.04` 实际不触发，真正抗噪的是平滑本身）。
+- 校准结束后，持续注视正中约 0.7 秒即可选中「前进」。
+- 等待眨眼时，睁眼注视另一个方向会取消原候选。人脸丢失会清除方向和眨眼的计时，重新检测到人脸后需要重新注视并眨眼。
+- `blink_preview.py` 在 30 fps 下可能将单帧闭眼平滑后计为一次眨眼。
 
 ## 后续计划
 
@@ -494,13 +490,11 @@ actually go out to the firmware.
 6. **Chinese font dependency**: the three interaction scripts that display Chinese probe system fonts in the order `msyh.ttc → simhei.ttf → arial.ttf` and cache the loaded font (no more re-reading the file every frame); an error is raised only if none of the three exists. `camera_preview.py` and `landmarks_preview.py` use English only and do not depend on fonts.
 7. The 2026-09-16 recording files in `data/raw_videos/` are all 0-byte empty shells (the recording never wrote any data) and have been deleted from the repository.
 
-### Behaviour boundaries we intentionally keep
+### Direction confirmation on this branch
 
-These three are the current, real boundaries of the system and are "known, deliberately untouched" — changing any of them needs a separate decision (the acceptance bar for this refactor was *behaviour unchanged*, so nothing was tuned):
-
-- Staring at the exact centre of the screen **never** produces a candidate: the stability timer starts only when the direction **changes**, and the initial direction is already "centre".
-- After entering "waiting for blink", looking away does **not** cancel the selected direction — only a blink (or losing the face) leaves that state.
-- At 30 fps a single closed frame is stretched by the 3-frame smoothing into a ~0.10 s closure and can therefore count as a blink (`MIN_CLOSED_SECONDS = 0.04` effectively never fires; the smoothing itself is what filters noise).
+- After calibration, look at the centre for about 0.7 seconds to select Forward.
+- During blink confirmation, looking in a different direction with your eyes open cancels the candidate. Losing the face clears the dwell and blink timers. After the face is reacquired, select the direction and blink again.
+- At 30 fps, smoothing in `blink_preview.py` can make a single closed frame count as a blink.
 
 ## Future Plans
 

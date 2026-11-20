@@ -37,6 +37,7 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
   │   │    │    └─ eye_aspect_ratio() → distance()   量 4 段距离
   │   │    ├─ _update_calibration()            校准未完成时走这里
   │   │    ├─ _update_selection()              校准完成后走这里（视线选择 + 眨眼确认）
+  │   │    │    └─ _update_direction()           睁眼时累计停留时间或取消旧候选
   │   │    └─ _status(...) → GazeBlinkStatus   把本帧结果打包返回
   │   ├─★ link.update(now)                     硬件链路：心跳重发当前指令 + 收电池回报
   │   │    └─ 确认成功的瞬间：link.set_intent(方向) → 翻译成 L/F/R 发给固件
@@ -55,6 +56,7 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
     校准      ──(满 3 秒 且 样本≥10 个)──────▶ 选择方向
     选择方向  ──(同一方向稳定停留 0.70 秒)───▶ 等待眨眼（pending = 选中的方向）
     等待眨眼  ──(检测到一次自然眨眼)─────────▶ 确认成功（屏幕显示"已确认"）
+    等待眨眼  ──(睁眼时注视方向改变)────────▶ 选择方向（取消旧候选）
     确认成功  ──(1.6 秒后自动)──────────────▶ 选择方向（可以接着选下一项）
     任意状态  ──(人脸丢失)──────────────────▶ 选择方向（未完成的候选作废）
     任意状态  ──(按 C)──────────────────────▶ 校准（reset(now) 把一切拨回起点）
@@ -246,48 +248,50 @@ class GazeBlinkDetector:
         self._reopen_line: float | None = None
         self._gaze_history.clear()
         self._ear_history.clear()
-        # ---- 状态机的全部状态（本程序的"记忆"）----
-        #   _state         : 现在是四个状态里的哪一个
-        #   _raw_choice    : 这一帧视线落在哪个方向（会抖）
-        #   _stable_choice : 稳定够久、已经确认过的方向（用来高亮卡片）
-        #   _pending       : 已经选中、正等着眨眼确认的方向
-        self._state, self._raw_choice, self._stable_choice, self._pending = "校准", "前进", None, None
-        # 四个时间戳（方向稳定的起点 / 睁眼起点 / 闭眼起点 / 确认成功时刻）+ 是否闭着眼
-        self._direction_since = self._open_since = self._closed_since = self._confirm_started = None
-        self._is_closed = False
+        self._state = "校准"
+        self._clear_selection()
         self._last_blink = float("-inf")  # 上次计数时刻；负无穷让第一次眨眼不受不应期限制
         self._message = "请睁眼看屏幕正中间，正在校准"
+
+    def _clear_selection(self) -> None:
+        """清除尚未完成的方向停留和眨眼，保留校准与已完成眨眼的时间。"""
+        self._raw_choice = self._stable_choice = self._pending = None
+        self._direction_since = self._open_since = self._closed_since = self._confirm_started = None
+        self._is_closed = False
 
     def toggle_invert(self) -> None:
         """按 I 时调用：把左右方向反过来，并更新屏幕提示。"""
         self._invert = not self._invert
+        if self._state in ("选择方向", "等待眨眼"):
+            self._clear_selection()
+            self._state = "选择方向"
         self._message = "左右方向已反转" if self._invert else "左右方向已恢复"
 
     def update(self, now: float, landmarks) -> GazeBlinkStatus:
         """吃一帧数据，返回本帧状态。landmarks 传 None 表示这帧没检测到人脸。"""
-        if landmarks is None:
-            # 没人脸：不作任何判断，候选作废；但"校准"状态不打断（否则一转头就白校准了）
-            self._message = "未检测到人脸：已暂停，重新正对摄像头"
+        score = gaze_score(landmarks) if landmarks is not None else None
+        if score is None or not math.isfinite(score):
+            # 无有效视线时丢弃候选、计时与平滑历史，已采集的校准样本仍可用。
+            self._gaze_history.clear()
+            self._ear_history.clear()
             if self._state != "校准":
-                self._state, self._stable_choice, self._pending = "选择方向", None, None
+                self._clear_selection()
+                self._state = "选择方向"
+            self._message = "未检测到有效视线：已暂停，请正对摄像头"
             return self._status(score=None, ear=None,
                                 calibration_progress=None, stability_progress=None)
 
-        score = gaze_score(landmarks)                 # 眼睛在看哪边
-        current_ear = average_ear(landmarks)          # 眼睛张多开
-        # 两个数各做一次"最近几帧平均"，把抖动抹掉
-        if score is not None:
-            self._gaze_history.append(score)
-            score = sum(self._gaze_history) / len(self._gaze_history)
-        self._ear_history.append(current_ear)
+        self._ear_history.append(average_ear(landmarks))
         current_ear = sum(self._ear_history) / len(self._ear_history)
+        # 闭眼期间的虹膜位置不用于切换方向。
+        if self._reopen_line is None or current_ear >= self._reopen_line:
+            self._gaze_history.append(score)
+        score = sum(self._gaze_history) / len(self._gaze_history) if self._gaze_history else None
 
-        # 进度条数据按"本帧进入时的状态"算：这样校准完成的那一帧也能看到 100% 满条
+        # 校准结束的当帧仍显示满条，方向进度则按更新后的计时计算。
         calibration_progress = stability_progress = None
         if self._state == "校准":
             calibration_progress = min((now - self._calibration_started) / self._calibration_seconds, 1.0)
-        elif self._state == "选择方向" and self._direction_since is not None:
-            stability_progress = min((now - self._direction_since) / self._select_stable_seconds, 1.0)
 
         # ---- 按状态分派 ----
         # 【状态一：校准】攒够 3 秒且样本足够 → 算出三个"标尺"，转入选择方向
@@ -297,9 +301,12 @@ class GazeBlinkDetector:
         elif self._state in ("选择方向", "等待眨眼") and self._center is not None:
             self._update_selection(now, score, current_ear)
         # 【状态四：确认成功】停 1.6 秒让人看清结果，然后自动回到"选择方向"
-        elif self._state == "确认成功" and self._confirm_started and now - self._confirm_started >= 1.6:
-            self._state, self._stable_choice, self._pending, self._direction_since = "选择方向", None, None, now
+        elif self._state == "确认成功" and self._confirm_started is not None and now - self._confirm_started >= 1.6:
+            self._clear_selection()
+            self._state = "选择方向"
             self._message = "请继续选择下一项方向"
+        if self._state == "选择方向" and self._direction_since is not None:
+            stability_progress = min((now - self._direction_since) / self._select_stable_seconds, 1.0)
         return self._status(score=score, ear=current_ear,
                             calibration_progress=calibration_progress,
                             stability_progress=stability_progress)
@@ -318,22 +325,14 @@ class GazeBlinkDetector:
         self._close_line, self._reopen_line = base * self._close_ratio, base * self._reopen_ratio
         self._state, self._message = "选择方向", "校准完成：看左转、前进或右转，稳定后等待眨眼"
 
-    def _update_selection(self, now: float, score: float, current_ear: float) -> None:
+    def _update_selection(self, now: float, score: float | None, current_ear: float) -> None:
         """选择方向 / 等待眨眼：先看视线选了哪个方向，再跑眨眼状态机。"""
-        # offset = 相对正视基准的偏移量；按 I 反转时取负号
-        offset = score - self._center if score is not None else 0.0
-        if self._invert:
-            offset = -offset
-        # 偏移量越过阈值就判成左/右，否则算"前进"（中）
-        new_choice = "左转" if offset < -self._side_threshold else "右转" if offset > self._side_threshold else "前进"
-        if self._state == "选择方向":
-            if new_choice != self._raw_choice:
-                # 方向变了 → 重新开始计时，候选清空
-                self._raw_choice, self._direction_since, self._stable_choice = new_choice, now, None
-            elif self._direction_since is not None and now - self._direction_since >= self._select_stable_seconds:
-                # 同一方向稳定停留够久 → 定为候选，进入"等待眨眼"
-                self._stable_choice, self._pending, self._state = self._raw_choice, self._raw_choice, "等待眨眼"
-                self._message = f"已选择“{self._pending}”，请自然眨眼确认"
+        if current_ear >= self._reopen_line and score is not None:
+            self._update_direction(now, score)
+        elif self._state == "选择方向":
+            self._direction_since = self._open_since = None
+        if self._state != "等待眨眼":
+            return
 
         # 眨眼状态机：仅在“等待眨眼”时才把一次眨眼当确认。
         # stable_open 三个条件：有睁眼起点、睁眼已满 0.1 秒、离上次计数已满 0.3 秒
@@ -346,7 +345,7 @@ class GazeBlinkDetector:
         if self._is_closed:
             # 本来闭着 → 现在睁开了：量一下这次闭了多久
             if current_ear >= self._reopen_line:
-                duration = now - self._closed_since if self._closed_since else 0.0
+                duration = now - self._closed_since
                 self._is_closed, self._closed_since, self._open_since = False, None, now
                 # 闭眼时长落在自然眨眼窗口内 → 记一次"可用的眨眼"
                 if self._min_closed_seconds <= duration <= self._max_closed_seconds:
@@ -359,15 +358,42 @@ class GazeBlinkDetector:
         elif current_ear < self._close_line and stable_open:
             # 掉到闭眼线以下，且刚才确实稳定睁着 → 进入闭眼候选
             self._is_closed, self._closed_since, self._open_since = True, now, None
+            self._gaze_history.clear()  # 重新睁眼时用新的视线核对候选
         else:
             # 落在两条判定线之间的灰色地带 → 睁眼计时作废
             self._open_since = None
 
         # 【状态三 → 四】只有"等待眨眼"期间的眨眼才被当作确认
-        if self._state == "等待眨眼" and blink_confirmed:
+        if blink_confirmed:
             self._state, self._confirm_started = "确认成功", now
             # 是否真的发往硬件看右上角链路状态（模拟/串口），状态机保持纯逻辑
             self._message = f"已确认“{self._pending}”"
+
+    def _update_direction(self, now: float, score: float) -> None:
+        """用睁眼时的方向推进停留计时，或取消已离开的候选。"""
+        offset = score - self._center
+        if self._invert:
+            offset = -offset
+        new_choice = "前进"
+        if offset < -self._side_threshold:
+            new_choice = "左转"
+        elif offset > self._side_threshold:
+            new_choice = "右转"
+
+        if self._state == "等待眨眼":
+            if new_choice == self._pending:
+                return
+            self._clear_selection()
+            self._state = "选择方向"
+            self._message = "已取消原方向，请稳定注视要选择的方向"
+
+        if self._open_since is None:
+            self._open_since = now
+        if self._direction_since is None or new_choice != self._raw_choice:
+            self._raw_choice, self._direction_since = new_choice, now
+        elif now - self._direction_since >= self._select_stable_seconds:
+            self._stable_choice, self._pending, self._state = new_choice, new_choice, "等待眨眼"
+            self._message = f"已选择“{self._pending}”，请自然眨眼确认"
 
     def _status(self, score: float | None, ear: float | None,
                 calibration_progress: float | None, stability_progress: float | None) -> GazeBlinkStatus:

@@ -233,12 +233,12 @@ class GazeDirectionDetector:
         else:
             new_direction = "中"
 
-        if new_direction != self._raw_direction:
-            # 方向变了 → 重新开始计时，候选清空
+        if self._direction_since is None or new_direction != self._raw_direction:
+            # 初次有效注视或方向变化时重新计时
             self._raw_direction = new_direction
             self._direction_since = now
             self._candidate = "无"
-        elif self._direction_since is not None and now - self._direction_since >= self._stable_seconds:
+        elif now - self._direction_since >= self._stable_seconds:
             # 同一方向稳定停留够久 → 成为候选
             self._candidate = self._raw_direction
         self._message = "只是在选择候选方向；本程序不会移动轮椅"
