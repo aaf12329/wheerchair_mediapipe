@@ -11,9 +11,6 @@
 /data/snapshots/
 /data/landmark_snapshots/
 
-# Gesture weights from the local gaze_wheelchair_pack
-/models/gesture_best.onnx
-
 # OS metadata
 Thumbs.db
 Desktop.ini

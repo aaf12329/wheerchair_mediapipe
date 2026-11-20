@@ -172,7 +172,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 
 手眼预览在同一帧运行 MediaPipe 眼动检测和 `gaze_wheelchair_pack` 的 `best.onnx` 手势分类。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。手势结果以检测框、类别和置信度显示，类别变化时在终端打印。
 
-手势模型默认路径为 `models/gesture_best.onnx`，该本地权重独立于 Git。可以复制运行包的 `retinaface_arcface/best.onnx` 到默认路径，或通过 `--gesture-model` 直接使用原文件。
+手势预览默认加载随仓库提供的 [`models/gesture_best.onnx`](../models/gesture_best.onnx)。这是 `gaze_wheelchair_pack` 的 `retinaface_arcface/best.onnx` 原始权重。可通过 `--gesture-model` 指定其他兼容模型。
 
 | 类别 / Class | 显示 / Label |
 |---|---|
@@ -472,7 +472,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 
 The hand-eye preview runs MediaPipe eye tracking and `best.onnx` gesture detection from `gaze_wheelchair_pack` on the same frame. It draws gesture boxes, labels, and confidence scores, and logs class changes. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
 
-Copy the pack's `retinaface_arcface/best.onnx` to the local, Git-ignored `models/gesture_best.onnx`, or pass its path with `--gesture-model`. Classes `0`–`5` are Stop, Forward, Backward, Left, Right, and Invalid.
+The preview loads the bundled [`models/gesture_best.onnx`](../models/gesture_best.onnx) by default. It is an unchanged copy of `retinaface_arcface/best.onnx` from `gaze_wheelchair_pack`. Use `--gesture-model` to select another compatible model. Classes `0`–`5` are Stop, Forward, Backward, Left, Right, and Invalid.
 
 Confirmed eye movements and keyboard input drive serial control. New serial connections default to `motor-test`, with forward and stop available from eye control. Select `--firmware wheelchair` on the revised controller for turning, heartbeat, and the battery query.
 

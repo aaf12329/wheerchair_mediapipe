@@ -64,9 +64,9 @@ When starting the main gaze demo, hand and eye preview, or standalone keyboard s
 
 The gaze and hand-eye demos use the `ardino_demo.ino` `motor-test` protocol by default when a serial port is specified. Pass `--firmware motor-test` to use the same command set in simulation.
 
-手眼预览默认读取本地 `models/gesture_best.onnx`。新工作区可把运行包 `retinaface_arcface/best.onnx` 复制到该路径，或用 `--gesture-model` 指向原文件。手势结果用于显示和日志，串口控制来自眼动确认或键盘。
+手眼预览默认读取仓库中的 [`models/gesture_best.onnx`](models/gesture_best.onnx)，权重来自 `gaze_wheelchair_pack` 的 `retinaface_arcface/best.onnx`。可用 `--gesture-model` 指定其他兼容权重。手势结果用于显示和日志，串口控制来自眼动确认或键盘。
 
-The hand-eye preview reads the local `models/gesture_best.onnx`. In a new checkout, copy `retinaface_arcface/best.onnx` from the pack to that path or point `--gesture-model` at the original file. The preview displays and logs gestures. Confirmed eye movements or keyboard input drive the serial control path.
+The hand-eye preview loads the bundled [`models/gesture_best.onnx`](models/gesture_best.onnx) from `gaze_wheelchair_pack/retinaface_arcface/best.onnx`. Use `--gesture-model` to select other compatible weights. The preview displays and logs gestures. Confirmed eye movements or keyboard input drive the serial control path.
 
 ```powershell
 python .\src\interaction\gaze_blink_confirm_demo.py
