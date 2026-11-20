@@ -91,6 +91,7 @@ EyeWheelchairProject/
 │  │  ├─ gaze_direction_preview.py    第 4 步：视线方向选择（左 / 中 / 右）
 │  │  ├─ gaze_blink_confirm_demo.py   第 5 步：视线选方向 + 眨眼确认（界面美化版，接串口层）
 │  │  ├─ hand_eye_preview.py         同帧显示手部和眼睛，并输出确认后的方向指令
+│  │  ├─ keyboard_serial.py           Windows 终端键盘输入与方向指令
 │  │  └─ wheelchair_control.py       两个演示共用的方向下发和丢脸停车逻辑
 │  └─ hardware/
 │     └─ serial_link.py               串口输出层：意图→指令、心跳、电池、低电锁（默认模拟）
@@ -188,6 +189,29 @@ python .\src\interaction\hand_eye_preview.py --serial-port COM3
 
 - **先点一下视频窗口再按键**——OpenCV 的按键来自窗口焦点，焦点在终端上时按 Q 是没有反应的。
 - 摄像头打不开时：关掉占用摄像头的软件（会议、相机 App），或把脚本顶部的 `CAMERA_INDEX` 从 `0` 改成 `1`。
+
+### 键盘模式 / Keyboard mode
+
+在 Windows PowerShell 或终端里运行。键盘模式直接读取终端按键，无需摄像头。默认打印模拟指令，台架联调可指定实际串口。
+
+Run this in an interactive Windows terminal. Keyboard mode reads keys from the terminal and needs no camera. It prints simulated commands by default. Specify the controller's port for bench integration.
+
+```powershell
+python .\src\interaction\hand_eye_preview.py --keyboard
+python .\src\interaction\hand_eye_preview.py --keyboard --serial-port COM3
+```
+
+| 按键 / Keys | 指令 / Command |
+|---|---|
+| `W` / `F` / ↑ | `F` 前进 / Forward |
+| `A` / `L` / ← | `L` 左转 / Left |
+| `D` / `R` / → | `R` 右转 / Right |
+| `S` / 空格 / ↓ | `S` 停止 / Stop |
+| `Q` / `Esc` | 停止并退出 / Stop and quit |
+
+约 0.7 秒没有再次收到方向键输入时发送 `S)。键盘模式沿用串口层的低电锁、心跳、电池查询和终端打印。
+
+After about 0.7 seconds without another directional key event, the app sends `S`. It uses the existing serial layer for low-battery lockout, heartbeats, battery queries and terminal output.
 
 ## 测试
 
@@ -344,6 +368,7 @@ EyeWheelchairProject/
 │  │  ├─ gaze_direction_preview.py    Step 4: Gaze direction selection (left / center / right)
 │  │  ├─ gaze_blink_confirm_demo.py   Step 5: Gaze selects direction + blink confirmation (restyled UI, wired to the serial layer)
 │  │  ├─ hand_eye_preview.py         Combined hand and eye preview with confirmed direction commands
+│  │  ├─ keyboard_serial.py           Windows terminal input and direction commands
 │  │  └─ wheelchair_control.py       Direction output and face-loss stop shared by both demos
 │  └─ hardware/
 │     └─ serial_link.py               Serial output layer: intent→command, heartbeat, battery, low-battery lock (simulated by default)
@@ -436,6 +461,8 @@ Two prerequisites:
 
 - **Click the video window first, then press keys** — OpenCV key events come from window focus; when focus is on the terminal, pressing Q has no effect.
 - If the camera cannot open: close software occupying the camera (meetings, camera apps), or change `CAMERA_INDEX` at the top of the script from `0` to `1`.
+
+See [Keyboard mode](#键盘模式--keyboard-mode) for terminal keyboard input and serial output.
 
 ## Testing
 

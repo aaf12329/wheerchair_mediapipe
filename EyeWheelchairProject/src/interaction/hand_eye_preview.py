@@ -22,7 +22,7 @@ if SRC_DIR not in sys.path:
 
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
 from hardware.serial_link import WheelchairLink  # noqa: E402
-from interaction import blink_preview, gaze_direction_preview  # noqa: E402
+from interaction import blink_preview, gaze_direction_preview, keyboard_serial  # noqa: E402
 from interaction.gaze_blink_confirm_demo import GazeBlinkDetector  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 from vision import landmarks_preview  # noqa: E402
@@ -150,6 +150,12 @@ if __name__ == "__main__":
     parser = ArgumentParser(description="MediaPipe 手部与眼睛集成预览")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--video", type=Path, help="在模拟模式下播放录像")
-    source.add_argument("--serial-port", help="使用摄像头并连接指定串口，例如 COM3")
+    source.add_argument("--keyboard", action="store_true", help="在 Windows 终端使用键盘控制，不打开摄像头")
+    parser.add_argument("--serial-port", help="连接指定串口，例如 COM3")
     args = parser.parse_args()
-    main(args.video, serial_port=args.serial_port)
+    if args.video is not None and args.serial_port is not None:
+        parser.error("录像模式使用模拟，不能同时指定串口。")
+    if args.keyboard:
+        keyboard_serial.main(args.serial_port)
+    else:
+        main(args.video, serial_port=args.serial_port)
