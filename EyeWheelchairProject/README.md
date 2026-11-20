@@ -220,12 +220,14 @@ PC（Python + pyserial，9600 波特）──串口指令──▶ ATmega328P �
 换向/转向**先减速停稳再执行**、低电（≤19.0V）**只允许停止指令**（回升到 19.5V 才解锁）、
 **看门狗**（程序卡死 2 秒自动复位停机）。
 
-固件文件两个：
+两个固件文件按原项目归档版本恢复。 [归档提交 `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
 
-- `Related_materials/ardino_demo/ardino_demo.ino` —— **参考件**，内容原样保留；
-- `firmware/wheelchair_controller/wheelchair_controller.ino` —— **修订版**：看门狗、串口 char 缓冲、转向先停、
+- 原始参考草图按字节保留。 [原始参考草图](Related_materials/ardino_demo/ardino_demo.ino)
+- 修订版控制器包含看门狗、串口 char 缓冲、转向先停、
   PWM 频率修正（约 18kHz）、电池平均+迟滞、低电限流等，每处改动带【修订】标记，
-  文件底部有 **7 条台架验证清单**（接线核对、噪音/温度、看门狗、长跑、转向先停、低电模拟、电压对表）。
+  文件底部有 **7 条台架验证清单**（接线核对、噪音/温度、看门狗、长跑、转向先停、低电模拟、电压对表）。 [修订版控制器](firmware/wheelchair_controller/wheelchair_controller.ino)
+
+两个草图均通过 Arduino Uno 编译检查（Arduino AVR Boards 1.8.8、TimerOne 1.1.1）。台架验证仍待完成。
 
 Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
 （`WheelchairLink` 类：意图翻译成协议字母、当前指令每 1 秒心跳重发、每 2 秒 `GET_DATA`
@@ -450,10 +452,12 @@ Battery ──▶ 0–25 V voltage sensor (1:5 divider) ──▶ A0
 
 The firmware has four built-in safety layers: **auto-stop after 3 s without a command** (so the Python side must periodically re-send the current command as a heartbeat), turns and direction changes **ramp to a full stop before executing**, low battery (≤19.0 V) **only accepts stop commands** (unlocks at 19.5 V), and a **watchdog** (a hung program resets within 2 s and stops the motors).
 
-Two firmware files:
+Both firmware sketches were restored from the original project archive. [Archived commit `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
 
-- `Related_materials/ardino_demo/ardino_demo.ino` — **reference copy**, contents kept untouched;
-- `firmware/wheelchair_controller/wheelchair_controller.ino` — **revised version**: watchdog, serial char buffer, stop-before-turn, PWM frequency fix (~18 kHz), battery averaging + hysteresis, throttled low-battery warnings, etc. Every change carries a 【修订】 marker, and the file ends with a **7-item bench verification checklist** (wiring check, noise/temperature, watchdog, long run, stop-before-turn, low-battery simulation, voltage cross-check).
+- The original reference sketch is preserved byte-for-byte. [Reference sketch](Related_materials/ardino_demo/ardino_demo.ino)
+- The revised controller includes the watchdog, serial char buffer, stop-before-turn, PWM frequency fix (~18 kHz), battery averaging and hysteresis, and throttled low-battery warnings. The revision markers and seven-item bench checklist are in the sketch. [Revised controller](firmware/wheelchair_controller/wheelchair_controller.ino)
+
+Both sketches compiled for Arduino Uno with Arduino AVR Boards 1.8.8 and TimerOne 1.1.1. Bench verification is pending.
 
 The Python serial output layer is also in place: `src/hardware/serial_link.py`
 (the `WheelchairLink` class: intent → protocol letters, 1 s heartbeat re-send of the current
