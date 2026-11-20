@@ -128,14 +128,14 @@ class WheelchairLink:
         self._send(letter, now if now is not None else time.perf_counter())
 
     def update(self, now: float) -> LinkStatus:
-        """每帧调用：心跳重发、GET_DATA 轮询、接收固件消息。返回本帧 LinkStatus。"""
+        """先处理固件消息，再发心跳和电池轮询，返回本帧 LinkStatus。"""
+        self._drain(now)
         if self._connected:
             if self._intent and now - self._last_sent_at >= self._heartbeat_interval:
                 self._send(self._intent, now)                    # 心跳
             if now - self._last_poll_at >= self._battery_poll_interval:
                 self._last_poll_at = now
                 self._send("GET_DATA", now, resets_heartbeat=False)
-        self._drain()
         return self._status()
 
     def close(self) -> None:
@@ -163,7 +163,7 @@ class WheelchairLink:
         if resets_heartbeat:
             self._last_sent_at = now
 
-    def _drain(self) -> None:
+    def _drain(self, now: float) -> None:
         """把串口里已到达的字节全部收下来，按行交给 _handle_line。非阻塞。"""
         if not self._connected or self._port is None:
             return
@@ -178,9 +178,9 @@ class WheelchairLink:
             self._rx = self._rx[-256:]
         while b"\n" in self._rx:
             raw, self._rx = self._rx.split(b"\n", 1)
-            self._handle_line(raw.decode("utf-8", errors="ignore").strip())
+            self._handle_line(raw.decode("utf-8", errors="ignore").strip(), now)
 
-    def _handle_line(self, line: str) -> None:
+    def _handle_line(self, line: str, now: float | None = None) -> None:
         """处理固件发来的一行：BATTERY 回报 / 低电消息 / 其他消息。"""
         if not line:
             return
@@ -194,8 +194,6 @@ class WheelchairLink:
                     self._is_low = True
                 elif self._is_low and voltage >= LOW_BATTERY_EXIT_V:
                     self._is_low = False
-                if self._is_low and self._intent != "S":
-                    self.set_intent("停")    # 双保险：Python 端也停
             except ValueError:
                 self._last_error = f"电池回报格式异常：{line}"
         else:
@@ -204,6 +202,8 @@ class WheelchairLink:
                 self._is_low = True
             elif line == FIRMWARE_RECOVERED_MSG:
                 self._is_low = False
+        if self._is_low and self._intent != "S":
+            self.set_intent("停", now=now)    # 数值回报和文本告警都立即覆盖旧指令
 
     def _status(self) -> LinkStatus:
         return LinkStatus(

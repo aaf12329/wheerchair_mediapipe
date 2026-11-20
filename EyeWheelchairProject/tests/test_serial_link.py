@@ -8,7 +8,7 @@
   5. 低电时非停止意图被强制为"停"
   6. close() 先发"停"再挂断
 """
-from hardware.serial_link import COMMAND_MAP, WheelchairLink
+from hardware.serial_link import COMMAND_MAP, FIRMWARE_LOW_MSG, FIRMWARE_RECOVERED_MSG, WheelchairLink
 
 
 class FakeSerial:
@@ -154,6 +154,25 @@ def test_firmware_low_message_also_locks():
     assert link.update(0.0).is_low_battery is True
     link._handle_line("Battery voltage recovered")
     assert link.update(0.0).is_low_battery is False
+
+
+def test_low_warning_stops_active_movement_before_heartbeat():
+    link, fake = make_link(rx=f"{FIRMWARE_LOW_MSG}\n".encode())
+    link.set_intent("前进", now=0.0)
+
+    info = link.update(1.05)  # 低电告警与原运动心跳在同一次更新到达
+    assert info.is_low_battery is True
+    assert info.intent == "S"
+    assert movement_letters(fake) == ["F", "S"]
+
+    link.update(2.2)
+    assert movement_letters(fake) == ["F", "S", "S"]
+
+    fake._rx.extend(f"{FIRMWARE_RECOVERED_MSG}\n".encode())
+    info = link.update(3.3)
+    assert info.is_low_battery is False
+    assert info.intent == "S"
+    assert movement_letters(fake) == ["F", "S", "S", "S"]
 
 
 def test_other_firmware_lines_are_kept_as_message():
