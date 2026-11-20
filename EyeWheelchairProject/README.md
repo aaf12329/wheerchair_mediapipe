@@ -8,12 +8,11 @@
 
 ### 仓库归并声明 / Repository consolidation
 
-- 原独立仓库：[aaf12329/Yolo_model](https://github.com/aaf12329/Yolo_model)。其内容现已归并至本仓库的 [`yolo_model/`](yolo_model/README.md)，不再作为独立项目维护；**旧 GitHub 仓库由所有者手动删除，本文不表示删除已完成**。
-- 唯一归档入口：[aaf12329/EyeWheelchairProject](https://github.com/aaf12329/EyeWheelchairProject)。主项目与 YOLO 子目录均处于暂时封存状态。
-- 本次仅归并目录和历史资料，不代表 YOLO 子项目已接入主项目的控制链路，也不代表已完成运行环境迁移、实机验证或达到交付条件。下文的分支、进度、指标和运行说明均为封存前的历史记录。
-- 数据集、原始视频、训练输出和私人协作记录保留在本机，不随 Git 上传；原独立仓库的 Git 历史已在本机另行备份。
+- 原独立 YOLO 项目的归并记录见 [EyeWheelchairProject 历史归档](https://github.com/aaf12329/EyeWheelchairProject)。
+- 下文标为「封存前」的设计和进度属于历史资料。当前入口与运行方法见 [根目录 README](../README.md)。
 
-The former [Yolo_model repository](https://github.com/aaf12329/Yolo_model) has been consolidated under [`yolo_model/`](yolo_model/README.md) here and is no longer maintained independently. **Its owner will manually delete the old GitHub repository; deletion is not claimed as completed.** [EyeWheelchairProject](https://github.com/aaf12329/EyeWheelchairProject) is the sole archive location. This directory consolidation does not establish runtime integration or hardware readiness. Both projects are shelved; the sections below describe historical work. Raw data, recordings, training outputs and private collaboration notes remain local, with the original Git history backed up separately.
+- The former YOLO project's consolidation is recorded in the [EyeWheelchairProject archive](https://github.com/aaf12329/EyeWheelchairProject).
+- Sections marked as historical describe work before shelving. See the [root README](../README.md) for the current entry points and run instructions.
 
 ---
 
@@ -40,9 +39,9 @@ EyeWheelchairProject
 | `huang` | 与主干采用相同的 MediaPipe 检测链路，供组员独立开发。 / Contributor branch using the same MediaPipe detection pipeline as main. | 落后 `main` 2 个提交，无独有提交；尚未包含主干最新的 README 同步与固件目录调整。 / 2 commits behind main, with no unique commits; missing the latest README update and firmware folder changes. |
 | `chen` | 新增 `src/common/` 公共模块、YuNet + YOLO 眼动后端；眨眼/视线预览支持 YOLO 与 MediaPipe 同帧对比及逐帧 CSV；确认演示使用 YOLO，并补充接线与交接资料。 / Shared utilities, YuNet + YOLO backend, YOLO/MediaPipe comparison with per-frame CSV in blink/gaze previews, a YOLO confirmation demo, and wiring/handover notes. | 有 12 个独有提交，同时缺少 `main` 的 2 个独有提交，尚未合并；固件仍采用旧路径。 / 12 unique commits and missing 2 main-only commits; not merged, with firmware still at the old paths. |
 
-**阅读范围**：下方目录、依赖和运行方法描述的是 **`main`**。`chen` 的新增模块与模型尚未进入主干，使用该分支时请查看其 `README.md` 和 `requirements.md`：YOLO 需要 `ultralytics`，双引擎对比还需要 `mediapipe`。
+上表是原项目的历史记录。下文的目录、依赖和运行方法适用于本仓库的 **`chen/main`**，当前视觉入口使用 MediaPipe。
 
-**Scope**: the directory tree, dependencies and run instructions below describe **`main`**. The new modules and models on `chen` have not been merged. Consult that branch's `README.md` and `requirements.md`: YOLO requires `ultralytics`, and dual-engine comparison also requires `mediapipe`.
+The table records the original project's branches. The directory tree, dependencies, and run instructions below describe this repository's **`chen/main`**, which uses MediaPipe for its vision demos.
 
 README 有中文版本和英文版本，中文在上，英文在下；协作流程见 [GIT_GUIDE.md](GIT_GUIDE.md)，开发与代码规范见 [Agent.md](Agent.md)。
 The Chinese version appears first, followed by the English version; see [GIT_GUIDE.md](GIT_GUIDE.md) for the collaboration workflow and [Agent.md](Agent.md) for development and code standards.
@@ -78,21 +77,28 @@ Eye-controlled wheelchair prototype — gaze + blink interaction. Python side ru
 
 ```
 EyeWheelchairProject/
-├─ yolo_model/                       已归并的视觉模型子项目（暂时封存） / Consolidated vision models (shelved)
 ├─ src/
 │  ├─ camera/
 │  │  ├─ camera_preview.py            第 1 周：摄像头基线（预览 / 录像 / 截图）
-│  │  └─ video_input.py               录像打开与播放节奏
+│  │  └─ video_input.py               摄像头、录像和播放节奏
+│  ├─ common/
+│  │  ├─ paths.py                     模型和输出目录
+│  │  └─ preview_ui.py                窗口检查、按键去抖和中文状态绘制
 │  ├─ vision/
-│  │  └─ landmarks_preview.py         第 2 周：人脸 478 点 + 手部 21 点可视化
+│  │  ├─ landmarks_preview.py         第 2 周：人脸 478 点 + 手部 21 点可视化
+│  │  ├─ mediapipe_video.py           建检测器、预处理和单帧推理
+│  │  ├─ eye_geometry.py              眼部索引、双眼开合比和虹膜位置
+│  │  └─ landmark_drawing.py         眼睛、脸部和手部骨架绘制
 │  ├─ interaction/
 │  │  ├─ blink_preview.py             第 3 步：眨眼校准与计数（已重构，含测试）
 │  │  ├─ gaze_direction_preview.py    第 4 步：视线方向选择（左 / 中 / 右）
 │  │  ├─ gaze_blink_confirm_demo.py   第 5 步：视线选方向 + 眨眼确认（界面美化版，接串口层）
 │  │  ├─ hand_eye_preview.py         同帧显示手部和眼睛，并输出确认后的方向指令
 │  │  ├─ keyboard_serial.py           Windows 终端键盘输入与方向指令
+│  │  ├─ *_state.py                   眨眼、视线方向和眨眼确认状态机
 │  │  └─ wheelchair_control.py       两个演示共用的方向下发和丢脸停车逻辑
 │  └─ hardware/
+│     ├─ serial_mode.py               选择模拟或实际串口
 │     └─ serial_link.py               串口输出层：意图→指令、心跳、电池、低电锁（默认模拟）
 ├─ tests/                             pytest：眨眼判定 / 串口链路 / 界面渲染 + 模型冒烟测试
 ├─ firmware/
@@ -127,22 +133,18 @@ EyeWheelchairProject/
 
 ## 代码组织
 
-每个脚本内部统一分三段，用注释横幅隔开：
+`main()` 负责启动设备和组织每帧调用。状态机只接收时间、关键点或数字，通过 `update()` 返回快照，通过 `reset()` 重新校准。
 
-1. **判定逻辑**：只吃关键点或数字，不碰摄像头、不画图 —— 可以脱离硬件单独测试
-2. **摄像头与画面**：打开设备、构建识别器、绘制文字与图形
-3. **主流程 `main()`**：读帧 → 更新状态 → 画 → 按键
+```text
+摄像头 / MP4 → video_input.py → BGR 帧 (H, W, 3)
+  → mediapipe_video.py → 镜像 RGB 图和毫秒时间戳 → 人脸 / 手部关键点
+  ├─ 眼部 → eye_geometry.py → 双眼开合比 / 虹膜横向位置 → *_state.py
+  │        → 已确认方向 → WheelchairControl → WheelchairLink → 模拟或串口
+  └─ 眼部与手部 → landmark_drawing.py → preview_ui.py → 预览画面
+Windows 终端按键 → keyboard_serial.py → WheelchairLink → 模拟或串口
+```
 
-另外：
-
-- 每个文件**开头的注释是一张调用关系图**（谁调用谁、哪些每帧调用、哪些只执行一次），
-  每个函数的文档串里写明"被谁调用、内部调用谁"，可以按图读代码。
-- 状态机（第 3 步的眨眼计数、第 4 步的方向选择、第 5 步的"选方向 + 眨眼确认"）
-  各自封装成一个类，状态存在对象里，对外只暴露 `update(now, ...)` 与 `reset(now)`。
-- 这样组织的目的：**阈值与判定逻辑能脱离摄像头被自动测试** —— 改动前后各跑一次 `pytest`，
-  就知道有没有破坏原有行为，不必开摄像头靠肉眼验证。
-- 第 2、3、4、5 步四个脚本已按这套办法整理完毕；`camera_preview.py` 是另一版重构，
-  尚未按这套整理，详见"已知问题"第 2 条。
+`common/paths.py` 集中管理模型、录像和截图路径。手眼预览从同一张输入图获得眼部与手部关键点，手部结果用于绘制骨架。原版固件的串口编码见 [电机测试固件](#原始电机测试固件--original-motor-test-firmware)。
 
 ## 环境准备
 
@@ -150,7 +152,7 @@ EyeWheelchairProject/
 
 ```bash
 python -m venv venv
-venv\Scripts\python.exe -m pip install opencv-python mediapipe numpy pillow pyserial pytest
+venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pillow pyserial pytest
 ```
 
 在 Git Bash 里把 `venv\Scripts\python.exe` 写成 `venv/Scripts/python.exe`，下文同理。
@@ -312,22 +314,15 @@ Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
 
 ## 已知问题与注意事项
 
-1. **退出行为（五个脚本已统一处理）**：MediaPipe 1.0.1 在 Windows 上销毁识别器要卡约 42 秒（实测）。
-   涉及 MediaPipe 的四个脚本现在都不再调用 `close()`，改为在检测器构建函数里保留一个长期引用（保活），
-   让进程退出时由系统一次性回收 —— 按 Q 或点窗口 ✕ 之后**1 秒内**结束。
-   `camera_preview.py` 不使用 MediaPipe，本来就没有这个问题。
-2. **`camera_preview.py` 尚未实机完整验证**：它由另一版重构完成（不是本次统一套路），
-   使用前请先跑一遍预览 / 录像 / 截图，确认与旧版行为一致。
+1. **退出行为**。Windows 上销毁 MediaPipe 检测器曾出现长时间阻塞，`mediapipe_video.py` 保留检测器引用，由系统在进程退出时回收。
+2. **`camera_preview.py` 实机验证待完成**。离线测试覆盖预览流程、录像写入和截图保存。
 3. **依赖未锁版本**：`requirements.md` 里没有写版本号，换机器或升级可能踩到 API 变化。
    当前开发环境实测为 mediapipe 1.0.1 + opencv 5.0.0，交付前建议锁定版本。
 4. **左右镜像约定**：交互类脚本对画面做了水平镜像（`cv2.flip`），让屏幕里的"左/右"与使用者的体感一致；
    `camera_preview.py` 不做镜像，所以它录下来的视频是"对面看你"的视角，与截图视角相反。
    如果实机上发现左右判断相反，按 `I` 反转。
-5. **窗口标题**：Windows 版 OpenCV 对中文窗口标题支持不好（会显示成乱码），
-   所以五个脚本的窗口标题一律用英文；窗口内的中文状态文字由 PIL + 系统字体渲染，不受影响。
-6. **中文字体依赖**：三个需要显示中文的交互脚本按 `msyh.ttc → simhei.ttf → arial.ttf` 顺序探测系统字体，
-   并缓存已加载的字体（不再每帧重复读文件）；三者都不存在才会报错。
-   `camera_preview.py` 与 `landmarks_preview.py` 只用英文，不依赖中文字体。
+5. **窗口标题**使用英文。窗口内的中文状态由 Pillow 和系统字体绘制。
+6. **中文字体**由 `preview_ui.py` 按 `msyh.ttc → simhei.ttf → arial.ttf` 顺序加载并缓存。摄像头和关键点独立预览只显示英文。
 7. `data/raw_videos/` 里 2026-09-16 的录像文件都是 0 字节空壳（当时录屏未写入成功），已从版本库中删除。
 
 ### 当前分支的方向确认
@@ -339,15 +334,10 @@ Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
 ## 后续计划
 
 1. **实机完整验证 `camera_preview.py`**：重构版还没完整跑过，用之前先测预览 / 录像 / 截图三项。
-2. **抽公共部分**：打开摄像头、构建检测器、中文绘制在五个脚本里各有一份拷贝，改一处要同步五处。
-   → **已在 `chen` 分支完成**：新增 `src/common/` 共用层（`paths.py` 路径地址簿、
-   `camera_utils.open_camera()`、`draw_utils.chinese_font/draw_text()`），并加入 `csv_logger.py`。
-   该分支还包含 YOLO 迁移及 YOLO / MediaPipe 双引擎对比；需验证后与主干的固件路径调整一起整合，
-   `main` 尚未引入这些模块。
-3. **台架验证修订版轮椅固件**：按文件底部 7 条清单逐项过
+2. **台架验证修订版轮椅固件**：按文件底部 7 条清单逐项过
    （接线核对 → PWM 噪音/温度 → 看门狗 → 长跑 → 转向先停 → 低电模拟 → 电压对表），
    全过后加装物理急停按钮。
-4. **实机联调修订版轮椅固件**：使用 `--serial-port` 和 `--firmware wheelchair`，验证心跳保活、`GET_DATA` 电池回报和低电强制停车。
+3. **实机联调修订版轮椅固件**：使用 `--serial-port` 和 `--firmware wheelchair`，验证心跳保活、`GET_DATA` 电池回报和低电强制停车。
 
 
 ## English Version
@@ -375,21 +365,28 @@ Why use two dimensions (gaze + blink): gaze is responsible for "selecting," blin
 
 ```
 EyeWheelchairProject/
-├─ yolo_model/                       已归并的视觉模型子项目（暂时封存） / Consolidated vision models (shelved)
 ├─ src/
 │  ├─ camera/
 │  │  ├─ camera_preview.py            Week 1: Camera baseline (preview / record / snapshot)
-│  │  └─ video_input.py               Video opening and playback timing
+│  │  └─ video_input.py               Camera, recordings, and playback timing
+│  ├─ common/
+│  │  ├─ paths.py                     Model and output paths
+│  │  └─ preview_ui.py                Window state, key debounce, and status text
 │  ├─ vision/
-│  │  └─ landmarks_preview.py         Week 2: Face 478 points + hand 21 points visualization
+│  │  ├─ landmarks_preview.py         Week 2: Face 478 points + hand 21 points visualization
+│  │  ├─ mediapipe_video.py           Detector setup, preprocessing, and per-frame inference
+│  │  ├─ eye_geometry.py              Eye indices, eye aspect ratio, and iris position
+│  │  └─ landmark_drawing.py         Eye, face, and hand overlays
 │  ├─ interaction/
 │  │  ├─ blink_preview.py             Step 3: Blink calibration and counting (refactored, with tests)
 │  │  ├─ gaze_direction_preview.py    Step 4: Gaze direction selection (left / center / right)
 │  │  ├─ gaze_blink_confirm_demo.py   Step 5: Gaze selects direction + blink confirmation (restyled UI, wired to the serial layer)
 │  │  ├─ hand_eye_preview.py         Combined hand and eye preview with confirmed direction commands
 │  │  ├─ keyboard_serial.py           Windows terminal input and direction commands
+│  │  ├─ *_state.py                   Blink, gaze direction, and blink confirmation state machines
 │  │  └─ wheelchair_control.py       Direction output and face-loss stop shared by both demos
 │  └─ hardware/
+│     ├─ serial_mode.py               Choose simulation or physical serial output
 │     └─ serial_link.py               Serial output layer: intent→command, heartbeat, battery, low-battery lock (simulated by default)
 ├─ tests/                             pytest: blink logic / serial link / UI rendering + model smoke test
 ├─ firmware/
@@ -423,18 +420,18 @@ Multi-contributor collaboration has started, with the following branch rules:
 
 ## Code Organization
 
-Each script is internally split into three sections separated by comment banners:
+`main()` starts the devices and coordinates the frame loop. State machines take time, landmarks, or numeric measurements. `update()` returns a snapshot and `reset()` starts calibration again.
 
-1. **Decision logic**: takes only landmarks or numbers — no camera, no drawing. It can be tested without any hardware.
-2. **Camera and rendering**: opening the device, constructing the detectors, drawing text and shapes.
-3. **Main flow `main()`**: read a frame → update state → draw → handle keys.
+```text
+Camera / MP4 → video_input.py → BGR frame (H, W, 3)
+  → mediapipe_video.py → mirrored RGB image and millisecond timestamp → face / hand landmarks
+  ├─ Eyes → eye_geometry.py → eye aspect ratio / horizontal iris position → *_state.py
+  │       → confirmed direction → WheelchairControl → WheelchairLink → simulation or serial
+  └─ Eye and hand landmarks → landmark_drawing.py → preview_ui.py → preview window
+Windows terminal keys → keyboard_serial.py → WheelchairLink → simulation or serial
+```
 
-Also:
-
-- The comment at the **top of each file is a call graph** (who calls whom, which calls happen every frame, which happen only once), and every function's docstring states "who calls me / whom I call" — you can read the code along that map.
-- Each state machine (blink counting in step 3, direction selection in step 4, "select + blink to confirm" in step 5) is wrapped in a class: the state lives on the object, and only `update(now, ...)` and `reset(now)` are exposed.
-- The purpose of this layout: **thresholds and decision logic can be tested without a camera** — run `pytest` before and after a change and you know whether existing behaviour broke, instead of opening the camera and verifying by eye.
-- Steps 2, 3, 4 and 5 have been reorganised this way; `camera_preview.py` is a separate refactor that has not been reorganised — see Known Issues item 2.
+`common/paths.py` is the registry for models, recordings, and snapshots. The hand-eye demo detects the eyes and hands on the same frame and draws a skeleton from the hand landmarks. The original command bytes are documented in [Original motor-test firmware](#原始电机测试固件--original-motor-test-firmware).
 
 ## Environment Setup
 
@@ -442,7 +439,7 @@ Requires Python 3.10 or above (development environment is 3.13 / 3.14).
 
 ```bash
 python -m venv venv
-venv\Scripts\python.exe -m pip install opencv-python mediapipe numpy pillow pyserial pytest
+venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pillow pyserial pytest
 ```
 
 In Git Bash, write `venv\Scripts\python.exe` as `venv/Scripts/python.exe`; the same applies below.
@@ -560,12 +557,12 @@ The terminal prints every successful write, including heartbeats and battery que
 
 ## Known Issues and Notes
 
-1. **Exit behaviour (handled in all five scripts)**: MediaPipe 1.0.1 takes about 42 seconds to destroy a recognizer on Windows (measured). The four MediaPipe-based scripts no longer call `close()`; instead the detector factory keeps a long-lived reference (keep-alive), so everything is reclaimed by the system at exit — pressing Q or clicking the window ✕ now ends the process **within 1 second**. `camera_preview.py` does not use MediaPipe and never had this problem.
-2. **`camera_preview.py` is not fully verified on the real machine**: it was refactored in a separate pass (not the unified pattern). Run preview / record / snapshot once before relying on it, and confirm the behaviour matches the old version.
+1. Destroying a MediaPipe landmarker on Windows previously caused a long delay. `mediapipe_video.py` retains references so the system reclaims them when the process exits.
+2. Live camera verification of `camera_preview.py` is pending. Offline tests cover the preview flow, recording, and snapshot capture.
 3. **Dependencies are not version-locked**: `requirements.md` lists no version numbers, so another machine or an upgrade may hit API changes. The development environment measures mediapipe 1.0.1 + opencv 5.0.0; lock the versions before delivery.
 4. **Left-right mirror convention**: interaction scripts mirror the image horizontally (`cv2.flip`) so that "left/right" on the screen matches the user's felt left/right; `camera_preview.py` does not mirror, so recorded video is from the "person facing you" perspective — the opposite of the snapshots. If left/right turns out reversed on the real device, press `I` to invert.
-5. **Window title**: Windows OpenCV renders Chinese window titles badly (garbled text), so all five scripts use English titles; Chinese text inside the window is drawn by PIL + system fonts and is unaffected.
-6. **Chinese font dependency**: the three interaction scripts that display Chinese probe system fonts in the order `msyh.ttc → simhei.ttf → arial.ttf` and cache the loaded font (no more re-reading the file every frame); an error is raised only if none of the three exists. `camera_preview.py` and `landmarks_preview.py` use English only and do not depend on fonts.
+5. Window titles use English. Pillow and system fonts render the Chinese status text inside the window.
+6. `preview_ui.py` tries `msyh.ttc → simhei.ttf → arial.ttf` and caches the selected font. The camera and standalone landmark previews use English.
 7. The 2026-09-16 recording files in `data/raw_videos/` are all 0-byte empty shells (the recording never wrote any data) and have been deleted from the repository.
 
 ### Direction confirmation on this branch
@@ -577,7 +574,5 @@ The terminal prints every successful write, including heartbeats and battery que
 ## Future Plans
 
 1. **Fully verify `camera_preview.py` on the real machine**: the refactored version has never been run end to end — test preview / record / snapshot first.
-2. **Extract the common parts**: opening the camera, building detectors and drawing Chinese text are copied in all five scripts, so one change means five edits.
-   → **Done on the `chen` branch**: new `src/common/` shared layer (`paths.py` registry, `camera_utils.open_camera()`, `draw_utils.chinese_font/draw_text()`), plus `csv_logger.py`. The branch also includes YOLO migration and YOLO/MediaPipe comparison; validate it and reconcile main's firmware path changes before merging. These modules are not yet on `main`.
-3. **Bench-verify `firmware/wheelchair_controller/wheelchair_controller.ino`**: work through the 7-item checklist at the end of the file (wiring check → PWM noise/temperature → watchdog → long run → stop-before-turn → low-battery simulation → voltage cross-check); then add a physical e-stop button.
-4. **On-device integration of the revised controller**: use the correct `--serial-port` with `--firmware wheelchair`, and verify the heartbeat, `GET_DATA` battery replies, and forced stop on low battery.
+2. **Bench-verify `firmware/wheelchair_controller/wheelchair_controller.ino`**: work through the 7-item checklist at the end of the file (wiring check → PWM noise/temperature → watchdog → long run → stop-before-turn → low-battery simulation → voltage cross-check); then add a physical e-stop button.
+3. **On-device integration of the revised controller**: use the correct `--serial-port` with `--firmware wheelchair`, and verify the heartbeat, `GET_DATA` battery replies, and forced stop on low battery.

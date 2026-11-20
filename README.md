@@ -10,11 +10,26 @@ An eye-controlled wheelchair vision prototype using OpenCV and MediaPipe. It tra
 |---|---|
 | 了解交互设计与历史记录 / Read the design and project history | [项目文档 / Project notes](EyeWheelchairProject/README.md) |
 | 检查摄像头 / Check the camera | [摄像头预览 / Camera preview](EyeWheelchairProject/src/camera/camera_preview.py) |
+| 查看人脸和手部关键点 / Inspect face and hand landmarks | [关键点预览 / Landmark preview](EyeWheelchairProject/src/vision/landmarks_preview.py) |
 | 演示视线与眨眼交互 / Run the gaze and blink demo | [主程序 / Demo entry point](EyeWheelchairProject/src/interaction/gaze_blink_confirm_demo.py) |
 | 同屏检测手部与眼睛并演示方向指令 / Preview hands and eyes with direction commands | [手眼预览 / Hand and eye preview](EyeWheelchairProject/src/interaction/hand_eye_preview.py) |
 | 用键盘测试方向指令 / Test direction commands from the keyboard | [键盘模式 / Keyboard mode](EyeWheelchairProject/README.md#键盘模式--keyboard-mode) |
 | 接手仓库或修改代码 / Work on the repository | [AGENTS.md](AGENTS.md) |
 | 查看许可 / Read the license | [MIT License](LICENSE) |
+
+## 代码导航 / Code map
+
+摄像头或录像先进入共享输入和 MediaPipe 模块。眼动状态机根据虹膜位置和双眼开合比判断方向及眨眼，再把确认的方向交给控制层和串口。手眼预览把手部骨架绘制在同一帧上。
+
+Camera or video frames go through the shared input and MediaPipe modules. The eye state machines process iris position and eye aspect ratio, then pass confirmed directions to the control and serial layers. The hand-eye preview draws the hand skeleton on the same frame.
+
+| 模块 / Module | 职责 / Responsibility |
+|---|---|
+| [`camera/video_input.py`](EyeWheelchairProject/src/camera/video_input.py) | 摄像头、录像和播放节奏 / Camera, recordings, and playback timing |
+| [`vision/`](EyeWheelchairProject/src/vision/) | MediaPipe 推理、眼部几何和关键点绘制 / MediaPipe inference, eye geometry, and landmark drawing |
+| [`interaction/`](EyeWheelchairProject/src/interaction/) | 预览入口、眼动状态机、键盘和方向控制 / Demos, eye state machines, keyboard input, and direction control |
+| [`hardware/`](EyeWheelchairProject/src/hardware/) | 模式选择、串口发送和协议 / Mode selection, serial output, and protocols |
+| [`common/`](EyeWheelchairProject/src/common/) | 项目路径、窗口按键和中文字体 / Project paths, window input, and Chinese fonts |
 
 ## 分支 / Branches
 
@@ -44,6 +59,10 @@ Run the demo or the offline tests from the repository root. The demo opens the c
 在交互式终端启动主眼动演示、手眼预览或独立串口键盘测试时，按回车选模拟，输入 `2` 后填写主控板串口号即可实际发送。录像模式和显式指定 `--serial-port`（独立键盘测试使用 `--port`）时会跳过菜单。
 
 When starting the main gaze demo, hand and eye preview, or standalone keyboard serial test in an interactive terminal, press Enter for simulation or enter `2` and supply the controller's serial port. Video playback and an explicit `--serial-port` (`--port` for the standalone test) skip the menu.
+
+指定主板串口时，主眼动和手眼预览默认按 `ardino_demo.ino` 的 `motor-test` 协议发送。若要让模拟也使用这套指令，请明确指定 `--firmware motor-test`。
+
+The gaze and hand-eye demos use the `ardino_demo.ino` `motor-test` protocol by default when a serial port is specified. Pass `--firmware motor-test` to use the same command set in simulation.
 
 ```powershell
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py
