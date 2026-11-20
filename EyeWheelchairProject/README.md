@@ -183,9 +183,8 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 venv\Scripts\python.exe -m pytest -q
 ```
 
-约 1 秒跑完，共 29 条：眨眼判定的校准 / 计数 / 过短过长忽略 / 不应期 / 人脸丢失重置，
-串口链路的意图翻译 / 心跳 / 电池解析 / 低电锁，界面渲染冒烟，外加一个加载真实模型的冒烟测试。
-全部使用合成数据，**不需要摄像头和硬件**；`data/raw_videos` 里没有可用录像时会自动跳过视频那条。
+离线测试覆盖眨眼判定、视线选方向、候选取消、主演示确认左转 / 前进 / 右转、串口模拟、界面渲染、模型推理和 MP4 播放。合成关键点用例会检查取消旧方向后，模拟链路只收到重新选择且眨眼确认的方向。
+测试无需摄像头和实机。使用本地录像的用例在 `data/raw_videos` 没有可用文件时自动跳过。
 
 改代码的习惯：**改动前后各跑一次 `pytest`**。它会把"这次改动有没有破坏原有行为"直接告诉你，不用开摄像头靠肉眼验证。
 
@@ -281,17 +280,15 @@ Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
 ## 后续计划
 
 1. **实机完整验证 `camera_preview.py`**：重构版还没完整跑过，用之前先测预览 / 录像 / 截图三项。
-2. **补常驻测试**：`tests/` 已覆盖第 3 步（眨眼）、串口层与界面渲染；第 4 步（视线方向）的行为
-   验证仍是一次性脚本，可照 `test_serial_link.py` 的样子落成常驻用例。
-3. **抽公共部分**：打开摄像头、构建检测器、中文绘制在五个脚本里各有一份拷贝，改一处要同步五处。
+2. **抽公共部分**：打开摄像头、构建检测器、中文绘制在五个脚本里各有一份拷贝，改一处要同步五处。
    → **已在 `chen` 分支完成**：新增 `src/common/` 共用层（`paths.py` 路径地址簿、
    `camera_utils.open_camera()`、`draw_utils.chinese_font/draw_text()`），并加入 `csv_logger.py`。
    该分支还包含 YOLO 迁移及 YOLO / MediaPipe 双引擎对比；需验证后与主干的固件路径调整一起整合，
    `main` 尚未引入这些模块。
-4. **台架验证 `firmware/wheelchair_controller/wheelchair_controller.ino`**：按文件底部 7 条清单逐项过
+3. **台架验证 `firmware/wheelchair_controller/wheelchair_controller.ino`**：按文件底部 7 条清单逐项过
    （接线核对 → PWM 噪音/温度 → 看门狗 → 长跑 → 转向先停 → 低电模拟 → 电压对表），
    全过后加装物理急停按钮。
-5. **实机联调串口层**：插上 Arduino，把 `gaze_blink_confirm_demo.py` 顶部 `ENABLE_HARDWARE`
+4. **实机联调串口层**：插上 Arduino，把 `gaze_blink_confirm_demo.py` 顶部 `ENABLE_HARDWARE`
    改为 `True` 并填好串口号，验证心跳保活、`GET_DATA` 电池回报、低电强制停车三条链路。
 
 
@@ -418,7 +415,8 @@ Two prerequisites:
 venv\Scripts\python.exe -m pytest -q
 ```
 
-Runs in about 1 second, 29 tests in total: blink calibration / counting / too-short & too-long ignoring / refractory period / face-loss reset; serial-link intent translation / heartbeat / battery parsing / low-battery lock; UI rendering smoke tests; plus one smoke test that loads the real model. All use synthetic data and **need no camera or hardware**; the video test is automatically skipped when there is no usable recording in `data/raw_videos`.
+The offline suite covers blink detection, gaze selection, candidate cancellation, left/forward/right confirmation through the main demo, serial simulation, rendering, model inference, and MP4 playback. Synthetic landmark tests check that after a candidate is cancelled, the simulated link receives only the newly selected and confirmed direction.
+The tests require no camera or target hardware. The case that uses a local recording skips when `data/raw_videos` contains no usable file.
 
 Habit when changing code: **run `pytest` once before and after each change**. It will directly tell you "whether this change broke existing behavior," without needing to open the camera and verify by eye.
 
@@ -501,8 +499,7 @@ actually go out to the firmware.
 ## Future Plans
 
 1. **Fully verify `camera_preview.py` on the real machine**: the refactored version has never been run end to end — test preview / record / snapshot first.
-2. **Add permanent tests**: `tests/` now covers step 3 (blink), the serial layer and UI rendering; the step 4 (gaze direction) behaviour checks are still one-off scripts and could be turned into permanent cases like `test_serial_link.py`.
-3. **Extract the common parts**: opening the camera, building detectors and drawing Chinese text are copied in all five scripts, so one change means five edits.
+2. **Extract the common parts**: opening the camera, building detectors and drawing Chinese text are copied in all five scripts, so one change means five edits.
    → **Done on the `chen` branch**: new `src/common/` shared layer (`paths.py` registry, `camera_utils.open_camera()`, `draw_utils.chinese_font/draw_text()`), plus `csv_logger.py`. The branch also includes YOLO migration and YOLO/MediaPipe comparison; validate it and reconcile main's firmware path changes before merging. These modules are not yet on `main`.
-4. **Bench-verify `firmware/wheelchair_controller/wheelchair_controller.ino`**: work through the 7-item checklist at the end of the file (wiring check → PWM noise/temperature → watchdog → long run → stop-before-turn → low-battery simulation → voltage cross-check); then add a physical e-stop button.
-5. **On-device integration of the serial layer**: plug in the Arduino, set `ENABLE_HARDWARE = True` with the right port in `gaze_blink_confirm_demo.py`, and verify the three chains — heartbeat keep-alive, `GET_DATA` battery replies, and forced stop on low battery.
+3. **Bench-verify `firmware/wheelchair_controller/wheelchair_controller.ino`**: work through the 7-item checklist at the end of the file (wiring check → PWM noise/temperature → watchdog → long run → stop-before-turn → low-battery simulation → voltage cross-check); then add a physical e-stop button.
+4. **On-device integration of the serial layer**: plug in the Arduino, set `ENABLE_HARDWARE = True` with the right port in `gaze_blink_confirm_demo.py`, and verify the three chains — heartbeat keep-alive, `GET_DATA` battery replies, and forced stop on low battery.
