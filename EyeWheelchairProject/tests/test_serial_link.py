@@ -8,6 +8,10 @@
   5. 低电时非停止意图被强制为"停"
   6. close() 先发"停"再挂断
 """
+from unittest.mock import Mock
+
+import pytest
+
 from hardware.serial_link import COMMAND_MAP, FIRMWARE_LOW_MSG, FIRMWARE_RECOVERED_MSG, WheelchairLink
 
 
@@ -116,6 +120,44 @@ def test_battery_poll_sends_get_data():
     link.update(1.0)                           # 轮询间隔 2 秒：不发
     link.update(2.05)                          # 发 GET_DATA
     assert "GET_DATA" in sent_letters(fake)
+
+
+def test_terminal_prints_every_successful_serial_write(capsys):
+    link, fake = make_link()
+    link.set_intent("前进", now=0.0)
+    link.update(0.0)
+    link.update(1.05)
+    link.close()
+
+    assert sent_letters(fake) == ["F", "GET_DATA", "F", "S"]
+    assert capsys.readouterr().out.splitlines() == [
+        "[串口 COM9] 已发送 F",
+        "[串口 COM9] 已发送 GET_DATA",
+        "[串口 COM9] 已发送 F",
+        "[串口 COM9] 已发送 S",
+    ]
+
+
+def test_terminal_labels_simulated_intents(capsys):
+    link = WheelchairLink(None)
+    link.set_intent("右转", now=0.0)
+    link.set_intent("右转", now=0.1)
+    link.set_intent("停", now=0.2)
+
+    assert capsys.readouterr().out.splitlines() == ["[模拟] 指令 R", "[模拟] 指令 S"]
+
+
+@pytest.mark.parametrize("write_error", [OSError("disconnected"), None], ids=["exception", "partial"])
+def test_terminal_does_not_report_unsent_serial_commands(capsys, monkeypatch, write_error):
+    link, fake = make_link()
+    monkeypatch.setattr(fake, "write", Mock(return_value=1, side_effect=write_error))
+    link.set_intent("前进", now=0.0)
+
+    info = link.update(0.0)
+    assert info.connected is False
+    assert info.send_count == 0
+    assert "串口写入失败" in info.last_error
+    assert capsys.readouterr().out == ""
 
 
 # ---------------------------- 电池回报与低电锁 ----------------------------

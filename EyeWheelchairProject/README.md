@@ -233,6 +233,7 @@ Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
 （`WheelchairLink` 类：意图翻译成协议字母、当前指令每 1 秒心跳重发、每 2 秒 `GET_DATA`
 轮询电池、低电双重保险强制停车；`port=None` 时为**模拟模式**，无硬件也能跑全套测试）。
 低电回报或固件低电告警会在下一条心跳之前将当前指令切为停止。解除低电锁后，原运动指令不会自动恢复。
+终端会打印每条成功写入的协议指令，包括每次心跳和电池查询，例如 `[串口 COM3] 已发送 F` 和 `[串口 COM3] 已发送 GET_DATA`。屏幕模拟使用 `[模拟] 指令 F` 一类的提示。
 `gaze_blink_confirm_demo.py` 已接入：默认 `ENABLE_HARDWARE = False` 纯屏幕模拟；
 改为 `True` 并填好串口号后，"确认成功"的方向才会真的发往固件。
 
@@ -464,6 +465,7 @@ The Python serial output layer is also in place: `src/hardware/serial_link.py`
 command, `GET_DATA` battery polling every 2 s, a second low-battery lock that forces stop;
 with `port=None` it runs in a **simulated mode**, so the full test suite needs no hardware).
 A low battery reading or firmware warning switches the current command to Stop before the next heartbeat. Clearing the low-battery lock leaves the Stop command in place.
+The terminal prints every successful write, including heartbeats and battery queries. For example, `[串口 COM3] 已发送 F` identifies a serial write, and `[模拟] 指令 F` identifies a simulated command.
 `gaze_blink_confirm_demo.py` is wired to it: by default `ENABLE_HARDWARE = False` (pure screen
 simulation); set it to `True` with the right port and only then does a confirmed direction
 actually go out to the firmware.

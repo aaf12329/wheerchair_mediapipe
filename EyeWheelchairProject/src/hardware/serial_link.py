@@ -8,6 +8,7 @@
     这里留 3 倍余量）、每 2 秒发一次 GET_DATA 收电池回报、随时接收固件消息
   - 低电双重保险：固件本身会拒绝非停止指令；本模块收到低电信号后也会把意图强制为"停"
   - port=None 时进入模拟模式：除真实收发外行为完全一致，方便无硬件开发与测试
+  - _send() 在终端打印完整写入的协议指令，并为模拟指令使用独立标签
 
 用法（见 gaze_blink_confirm_demo.py 的 main()）：
     link = WheelchairLink("COM3")      # 或 None → 模拟模式
@@ -152,16 +153,24 @@ class WheelchairLink:
 
     # ---- 内部实现 ----
     def _send(self, letter: str, now: float, *, resets_heartbeat: bool = True) -> None:
+        """发送一条协议指令，并在终端标明串口发送或模拟。"""
         if self._connected and self._port is not None:
             try:
-                self._port.write((letter + "\n").encode("ascii"))
+                payload = (letter + "\n").encode("ascii")
+                written = self._port.write(payload)
+                if written != len(payload):
+                    raise OSError(f"指令只写入 {written}/{len(payload)} 字节")
             except Exception as exc:  # noqa: BLE001 —— 设备拔掉等情况
                 self._connected = False
                 self._last_error = f"串口写入失败：{exc}"
                 return
+            message = f"[串口 {self._mode}] 已发送 {letter}"
+        else:
+            message = f"[模拟] 指令 {letter}"
         self._send_count += 1                # 模拟模式也计数（界面显示"已发 N 条"）
         if resets_heartbeat:
             self._last_sent_at = now
+        print(message, flush=True)
 
     def _drain(self, now: float) -> None:
         """把串口里已到达的字节全部收下来，按行交给 _handle_line。非阻塞。"""
