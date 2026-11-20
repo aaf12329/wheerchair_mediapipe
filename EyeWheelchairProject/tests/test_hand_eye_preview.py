@@ -1,5 +1,7 @@
 """验证手眼预览的同帧检测、渲染和假串口输出。"""
 
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -10,6 +12,68 @@ import hand_eye_preview as demo
 from test_gaze_blink import eye_landmarks
 from test_offline_workflows import FrameSource, simulate_window
 from test_serial_link import FakeSerial, make_link, movement_letters
+
+
+@pytest.mark.parametrize(("answers", "expected_port"), [
+    ([""], None),
+    (["1"], None),
+    (["2", ""], None),
+    (["invalid", "2", " COM9 "], "COM9"),
+    ([EOFError()], None),
+])
+def test_visual_cli_uses_selected_output_mode(monkeypatch, answers, expected_port):
+    run = Mock()
+    monkeypatch.setattr(demo, "main", run)
+    monkeypatch.setattr(sys, "argv", [demo.__file__])
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", Mock(side_effect=answers))
+
+    demo.cli()
+
+    run.assert_called_once_with(None, serial_port=expected_port, firmware=None)
+
+
+@pytest.mark.parametrize(("options", "interactive", "video", "port"), [
+    ([], False, None, None),
+    (["--video", "sample.mp4"], True, Path("sample.mp4"), None),
+    (["--serial-port", "COM9"], True, None, "COM9"),
+])
+def test_visual_cli_skips_menu_when_mode_is_already_known(monkeypatch, options, interactive, video, port):
+    run = Mock()
+    prompt = Mock()
+    monkeypatch.setattr(demo, "main", run)
+    monkeypatch.setattr(demo, "prompt_serial_port", prompt)
+    monkeypatch.setattr(sys, "argv", [demo.__file__, *options])
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: interactive))
+
+    demo.cli()
+
+    run.assert_called_once_with(video, serial_port=port, firmware=None)
+    prompt.assert_not_called()
+
+
+def test_keyboard_cli_uses_selected_port_and_firmware(monkeypatch):
+    run = Mock()
+    monkeypatch.setattr(demo.keyboard_serial, "main", run)
+    monkeypatch.setattr(sys, "argv", [demo.__file__, "--keyboard", "--firmware", "wheelchair"])
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", Mock(side_effect=["2", "COM9"]))
+
+    demo.cli()
+
+    run.assert_called_once_with("COM9", firmware="wheelchair")
+
+
+def test_mode_selection_can_be_cancelled_before_startup(monkeypatch):
+    run = Mock()
+    monkeypatch.setattr(demo, "main", run)
+    monkeypatch.setattr(sys, "argv", [demo.__file__])
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", Mock(side_effect=["2", KeyboardInterrupt()]))
+
+    demo.cli()
+
+    run.assert_not_called()
 
 
 def test_video_preview_draws_hands_and_eyes_together_and_independently(tmp_path, monkeypatch, capsys):

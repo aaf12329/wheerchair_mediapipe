@@ -1,5 +1,6 @@
 """同屏预览手部和眼睛，并将经视线与眨眼确认的方向交给轮椅串口层。
 
+cli() → 选择模拟或实际串口 → main() 或 keyboard_serial.main()
 main() → 打开摄像头或录像 → landmarks_preview.create_detectors()
   每帧 → read_and_detect() → 同帧的人脸与手部结果
        → update_eyes() → 已有的眨眼与视线状态机
@@ -102,6 +103,8 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
             link.set_intent("停", now=started)
         elif link.last_error:
             print(f"串口未连接，已切到模拟模式。{link.last_error}")
+        else:
+            print("模拟模式，终端会显示模拟指令。")
         print("手部与眼睛预览已启动。请睁眼看正中校准，点击窗口后按 Q 退出或 S 停止。")
 
         while True:
@@ -146,7 +149,27 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
             cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
+def prompt_serial_port(firmware: str | None) -> str | None:
+    """从交互式终端选择输出模式，返回实际串口名或 None（模拟）。"""
+    print("1. 模拟模式（默认）\n2. 实际发送到主控板")
+    try:
+        while True:
+            choice = input("选择模式 [1/2]（回车选 1）：").strip()
+            if choice in ("", "1"):
+                return None
+            if choice == "2":
+                break
+            print("请输入 1 或 2。")
+
+        sketch = "wheelchair_controller.ino" if firmware == "wheelchair" else "ardino_demo.ino"
+        print(f"请确认主控板烧录的是 {sketch}。")
+        return input("输入主板串口（如 COM5，留空进入模拟模式）：").strip() or None
+    except EOFError:
+        return None
+
+
+def cli() -> None:
+    """解析命令行，必要时询问串口模式，然后启动键盘或视觉入口。"""
     parser = ArgumentParser(description="MediaPipe 手部与眼睛集成预览")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--video", type=Path, help="在模拟模式下播放录像")
@@ -156,7 +179,20 @@ if __name__ == "__main__":
     args = parser.parse_args()
     if args.video is not None and args.serial_port is not None:
         parser.error("录像模式使用模拟，不能同时指定串口。")
+
+    serial_port = args.serial_port
+    if args.video is None and serial_port is None and sys.stdin is not None and sys.stdin.isatty():
+        try:
+            serial_port = prompt_serial_port(args.firmware)
+        except KeyboardInterrupt:
+            print("\n已取消启动。")
+            return
+
     if args.keyboard:
-        keyboard_serial.main(args.serial_port, firmware=args.firmware)
+        keyboard_serial.main(serial_port, firmware=args.firmware)
     else:
-        main(args.video, serial_port=args.serial_port, firmware=args.firmware)
+        main(args.video, serial_port=serial_port, firmware=args.firmware)
+
+
+if __name__ == "__main__":
+    cli()

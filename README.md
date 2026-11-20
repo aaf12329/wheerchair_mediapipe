@@ -41,9 +41,14 @@ python -m pip install opencv-contrib-python mediapipe numpy pillow pyserial pyte
 
 Run the demo or the offline tests from the repository root. The demo opens the camera by default and accepts an MP4 file through `--video`. Video playback uses on-screen simulation and exits at the end. The offline tests run without a camera and skip the test that uses a local recording when none is available. `pytest` is only needed for tests.
 
+在交互式终端启动 `hand_eye_preview.py` 时，按回车选模拟，输入 `2` 后填写主控板的串口号即可实际发送。录像模式和显式指定 `--serial-port` 时会跳过菜单。
+
+When starting `hand_eye_preview.py` in an interactive terminal, press Enter for simulation or enter `2` and supply the controller's serial port. Video playback and an explicit `--serial-port` skip the menu.
+
 ```powershell
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
+python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py
 python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
 python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
 python -m pytest -q .\EyeWheelchairProject\tests

@@ -169,7 +169,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 ```
 
 手眼预览在同一帧运行人脸与手部模型，同时显示双眼与虹膜关键点、最多两只手的骨架、视线方向和眨眼次数。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。
-注视选方向并眨眼确认后，终端会打印指令。默认和录像模式均使用模拟。指定 `--serial-port COM3` 后默认使用 `motor-test`，眼控可发送前进与停止。使用本仓库修订版轮椅固件时可加 `--firmware wheelchair` 以使用对应的转向、心跳和电池查询。手部用于检测显示。
+注视选方向并眨眼确认后，终端会打印指令。交互式启动时，按回车或输入 `1` 进入模拟，输入 `2` 后填写主控板串口进行实际发送。录像和非交互式启动默认模拟。也可用 `--serial-port COM3` 直接连接并跳过菜单。连接串口时默认使用 `motor-test`，眼控可发送前进与停止。使用本仓库修订版轮椅固件时可加 `--firmware wheelchair` 以使用对应的转向、心跳和电池查询。手部用于检测显示。
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
@@ -193,9 +193,9 @@ python .\src\interaction\hand_eye_preview.py --serial-port COM3
 
 ### 键盘模式 / Keyboard mode
 
-在 Windows 终端运行，按键从终端读取，无需摄像头。第一条命令模拟原始固件，第二条连接实际端口。将 COM3 换成主控板串口。
+在 Windows 终端运行，按键从终端读取，无需摄像头。第一条命令打开模式菜单，按回车即可模拟原始固件。第二条直接连接串口，将 COM3 换成主控板串口。
 
-Run this in an interactive Windows terminal. The first command simulates the original firmware. The second connects to a physical port. Replace COM3 with the controller's port.
+Run this in an interactive Windows terminal. The first command opens the mode menu. Press Enter to simulate the original firmware. The second connects directly to the controller. Replace COM3 with its serial port.
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
@@ -461,7 +461,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 ```
 
 The hand and eye preview runs both models on the same frame. It displays eye and iris landmarks, skeletons for up to two hands, gaze direction and blink count. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
-After gaze selection and blink confirmation, the terminal prints the command. The preview defaults to simulation and uses it for video playback. Specifying `--serial-port COM3` selects the original `motor-test` protocol by default, with forward and stop available from eye control. For the revised wheelchair controller, add `--firmware wheelchair` to use its turns, heartbeat and battery query. Hand detection is for display.
+After gaze selection and blink confirmation, the terminal prints the command. When starting from an interactive terminal, press Enter or choose `1` for simulation. Choose `2` and enter the controller's serial port to send commands to it. Video playback and non-interactive launches default to simulation. Use `--serial-port COM3` to connect directly and skip the menu. Serial connections default to the original `motor-test` protocol, with forward and stop available from eye control. For the revised wheelchair controller, add `--firmware wheelchair` to use its turns, heartbeat and battery query. Hand detection is for display.
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
