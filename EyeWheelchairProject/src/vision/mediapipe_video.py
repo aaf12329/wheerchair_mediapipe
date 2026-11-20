@@ -48,6 +48,14 @@ def create_hand_landmarker(model_path: Path):
     return detector
 
 
+def create_face_hand_landmarkers(face_model: Path, hand_model: Path):
+    """验证两个模型文件后，为同帧预览创建检测器。"""
+    missing = [path.name for path in (face_model, hand_model) if not path.exists()]
+    if missing:
+        raise FileNotFoundError(f"缺少模型：{', '.join(missing)}")
+    return create_face_landmarker(face_model), create_hand_landmarker(hand_model)
+
+
 def read_detection_input(capture, started: float, *, clock: Callable[[], float], video_time: float | None = None):
     """返回镜像 BGR 帧、当前时间、RGB 推理图像和相对毫秒时间戳。"""
     ok, frame = capture.read()
@@ -70,3 +78,17 @@ def read_face_frame(capture, detector, started: float, *, clock: Callable[[], fl
     frame, now, image, timestamp_ms = prepared
     faces = detector.detect_for_video(image, timestamp_ms).face_landmarks
     return frame, now, faces[0] if faces else None
+
+
+def read_face_hand_frame(
+    capture, face_detector, hand_detector, started: float, *,
+    clock: Callable[[], float], video_time: float | None = None,
+):
+    """用同一张推理图和时间戳取得人脸和手部结果。"""
+    prepared = read_detection_input(capture, started, clock=clock, video_time=video_time)
+    if prepared is None:
+        return None
+    frame, now, image, timestamp_ms = prepared
+    face_result = face_detector.detect_for_video(image, timestamp_ms)
+    hand_result = hand_detector.detect_for_video(image, timestamp_ms)
+    return frame, now, face_result, hand_result

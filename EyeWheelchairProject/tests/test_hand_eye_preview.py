@@ -97,8 +97,8 @@ def test_video_preview_draws_hands_and_eyes_together_and_independently(tmp_path,
     open_camera = Mock(side_effect=AssertionError("录像模式不应打开摄像头"))
     make_link_for_mode = Mock(wraps=demo.WheelchairLink)
     monkeypatch.setattr(demo, "open_video", open_video)
-    monkeypatch.setattr(demo.landmarks_preview, "create_detectors", create_detectors)
-    monkeypatch.setattr(demo.landmarks_preview, "open_camera", open_camera)
+    monkeypatch.setattr(demo, "create_face_hand_landmarkers", create_detectors)
+    monkeypatch.setattr(demo, "open_camera", open_camera)
     monkeypatch.setattr(demo, "WheelchairLink", make_link_for_mode)
     show, close = simulate_window(monkeypatch, [-1] * 3)
 
@@ -107,7 +107,7 @@ def test_video_preview_draws_hands_and_eyes_together_and_independently(tmp_path,
     open_video.assert_called_once_with(video)
     open_camera.assert_not_called()
     make_link_for_mode.assert_called_once_with(None, firmware=None)
-    create_detectors.assert_called_once()
+    create_detectors.assert_called_once_with(demo.FACE_MODEL, demo.HAND_MODEL)
     close.assert_called_once()
     assert source.released
     assert "录像播放结束" in capsys.readouterr().out
@@ -157,9 +157,8 @@ def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypat
     displayed = Mock(return_value=frame)
     monkeypatch.setattr(capture, "read", read_at_recorded_rate)
     monkeypatch.setattr(demo, "time", clock)
-    monkeypatch.setattr(demo.landmarks_preview, "time", clock)
-    monkeypatch.setattr(demo.landmarks_preview, "open_camera", lambda: capture)
-    monkeypatch.setattr(demo.landmarks_preview, "create_detectors", lambda: (face_detector, hand_detector))
+    monkeypatch.setattr(demo, "open_camera", lambda: capture)
+    monkeypatch.setattr(demo, "create_face_hand_landmarkers", lambda *_: (face_detector, hand_detector))
     monkeypatch.setattr(demo, "WheelchairLink", open_transport)
     monkeypatch.setattr(demo, "render_preview", displayed)
     # S 和 Q 都应在上一次按键不到 0.25 秒时响应。

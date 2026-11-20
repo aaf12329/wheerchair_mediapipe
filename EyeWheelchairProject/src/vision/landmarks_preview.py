@@ -1,52 +1,9 @@
-"""第 2 周：MediaPipe 人脸、眼睛和手部关键点可视化。
+"""第 2 步：同帧显示 MediaPipe 人脸和手部关键点。
 
-本程序仅把识别结果绘制到屏幕，绝不会向 Arduino 或轮椅发送命令。
-按 Q 退出；按 S 保存当前带关键点的截图。
-
-文件分三段：
-  1) 关键点绘制（把模型给的 0~1 坐标翻译成屏幕上的点、线和文字）—— 不碰摄像头
-  2) 摄像头与检测器（打开设备、建人脸与手部两个识别器）
-  3) 主流程 main()：读帧 → 画 → 推窗口 → 按键
-
-============================ 调用关系总览 ============================
-
-  __main__  →  main()
-  │
-  ├─ 启动阶段（每个只执行一次）
-  │   ├─ open_camera()                打开摄像头，返回 cap（后面每帧从它 read）
-  │   ├─ create_detectors()           建两个识别器：人脸 + 手部
-  │   │                                 （读 models/face_landmarker.task 和 hand_landmarker.task）
-  │   └─ print(...)                   启动提示
-  │
-  ├─ 每帧循环（★ 每帧都执行；顺序 看 → 画 → 控）
-  │   ├─★ read_and_detect(cap, face_detector, hand_detector, started)
-  │   │    ├─ cap.read() / cv2.flip / cv2.cvtColor / mp.Image   取一帧并预处理
-  │   │    ├─ face_detector.detect_for_video(图, 时间戳)   ← 第 1 次推理（人脸 478 点）
-  │   │    ├─ hand_detector.detect_for_video(图, 时间戳)   ← 第 2 次推理（每只手 21 点）
-  │   │    └─ 返回 (frame, now, 人脸结果, 手部结果)
-  │   ├─★ draw_results(frame, 人脸结果, 手部结果, fps)
-  │   │    ├─ draw_face(frame, 每张脸)      478 个绿点 + 双眼黄圈
-  │   │    │    └─ point(lm, w, h)          归一化坐标 → 像素坐标
-  │   │    ├─ draw_hands(frame, 手部结果)    为每只手选取左右手标签
-  │   │    │    └─ draw_hand() → point()    绘制手部骨架与标签
-  │   │    └─ 左上角黑底状态栏：FACE / HAND / FPS（英文，用 cv2.putText 画）
-  │   ├─★ cv2.imshow(WINDOW_NAME, frame)    把这一帧推到窗口
-  │   ├─★ window_is_alive()                 问窗口还活着没（点 ✕ 后为假）
-  │   └─★ pressed_key(now, key_available_at)  读按键：q 退出 / s 存截图
-  │        └─ save_snapshot(frame) → stamp()  存到 data/landmark_snapshots/
-  │
-  └─ finally（无论怎么退出都执行）
-      ├─ cap.release()                  交还摄像头
-      └─ cv2.destroyAllWindows()        关窗口
-
-这个文件**没有状态机、也没有阈值判定**——它只做"翻译和显示"：
-
-    模型输出（0~1 的归一化坐标）──point()──▶ 屏幕像素坐标 ──cv2──▶ 画面上的点 / 线 / 文字
-
-唯一的"判断"是手的左右标签，直接取自模型给出的 handedness，本程序不做二次推断。
-
-它和后面三步的关系：这里画出来的眼睛轮廓（12 个点）就是第 3 步算 EAR、第 4/5 步
-取虹膜和眼角时用的同一批点号——所以这个脚本是"关键点质量"的目视验收工具。
+启动：main() → open_camera() → create_detectors()。
+每帧：read_and_detect() → draw_results() → 窗口显示与按键。
+BGR 帧 → MediaPipe 单张 RGB 图和时间戳 → 人脸 478 点及每只手 21 点 → 显示。
+按 S 保存带骨架的截图，按 Q 退出。
 """
 from datetime import datetime
 from pathlib import Path
@@ -54,16 +11,16 @@ import sys
 import time
 
 import cv2
-import numpy as np
 
 # 兼容直接运行此脚本。
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from camera.video_input import open_camera as open_video_camera  # noqa: E402
+from common import preview_ui  # noqa: E402
 from common.paths import FACE_MODEL, HAND_MODEL, LANDMARK_SNAPSHOTS_DIR as SNAPSHOT_DIR  # noqa: E402
-from vision.eye_geometry import LEFT_EYE, RIGHT_EYE  # noqa: E402
-from vision.mediapipe_video import create_face_landmarker, create_hand_landmarker, read_detection_input  # noqa: E402
+from vision.landmark_drawing import EYE_LOOPS, draw_face, draw_hand, draw_hands, point  # noqa: E402
+from vision.mediapipe_video import create_face_hand_landmarkers, read_face_hand_frame  # noqa: E402
 
 # ---- 运行参数 ----
 CAMERA_INDEX = 0
@@ -72,58 +29,8 @@ KEY_DEBOUNCE_SECONDS = 0.25  # 两次按键响应的最小间隔：按住不放�
 
 WINDOW_NAME = "MediaPipe Landmarks | Q quit | S snapshot"
 
-# MediaPipe Face Landmarker 的眼睛轮廓关键点索引。
-# 和第 3 步算 EAR（blink_preview.py）、第 4/5 步取虹膜与眼角用的是同一批点。
-EYE_LOOPS = (LEFT_EYE, RIGHT_EYE)
-
 
 # ============================ 1) 关键点绘制（不碰摄像头） ============================
-
-
-def point(lm, width: int, height: int) -> tuple[int, int]:
-    """把一个归一化关键点（0~1）换成屏幕像素坐标。
-
-    调用关系：被 draw_face() 和 draw_hand() 调用；内部什么都不调用。
-    """
-    return int(lm.x * width), int(lm.y * height)
-
-
-def draw_face(frame, face_landmarks) -> None:
-    """绘制全部脸部点，并突出眼睛轮廓。
-
-    调用关系：被 draw_results() 对每张脸调用一次；内部调用 point()。
-    注意它直接在传入的 frame 上画（不返回新图），因为这里是"补充绘制"而不是产出一张新画面。
-    """
-    h, w = frame.shape[:2]
-    for lm in face_landmarks:
-        cv2.circle(frame, point(lm, w, h), 1, (0, 255, 0), -1)
-
-    for loop in EYE_LOOPS:
-        pts = [point(face_landmarks[i], w, h) for i in loop]
-        cv2.polylines(frame, [np.array(pts, dtype=np.int32)], True, (0, 255, 255), 1)
-
-
-def draw_hand(frame, landmarks, label: str) -> None:
-    """绘制 21 个手部点与基础骨架连接。
-
-    调用关系：被 draw_results() 对每只手调用一次；内部调用 point()。
-    label 是 LEFT / RIGHT / HAND（拿不到左右时用 HAND），画在手腕上方。
-    """
-    h, w = frame.shape[:2]
-    links = [
-        (0, 1), (1, 2), (2, 3), (3, 4),
-        (0, 5), (5, 6), (6, 7), (7, 8),
-        (5, 9), (9, 10), (10, 11), (11, 12),
-        (9, 13), (13, 14), (14, 15), (15, 16),
-        (13, 17), (17, 18), (18, 19), (19, 20), (0, 17),
-    ]
-    pts = [point(lm, w, h) for lm in landmarks]
-    for a, b in links:
-        cv2.line(frame, pts[a], pts[b], (255, 100, 0), 2)
-    for p in pts:
-        cv2.circle(frame, p, 4, (0, 0, 255), -1)
-    cv2.putText(frame, label, (pts[0][0] + 8, pts[0][1] - 8),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 100, 0), 2)
 
 
 def draw_results(frame, face_result, hand_result, fps: float) -> None:
@@ -147,15 +54,6 @@ def draw_results(frame, face_result, hand_result, fps: float) -> None:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 255), 2)
 
 
-def draw_hands(frame, hand_result) -> None:
-    """为关键点预览和手眼集成预览绘制手部骨架与左右手标签。"""
-    for index, landmarks in enumerate(hand_result.hand_landmarks):
-        label = "HAND"
-        if index < len(hand_result.handedness) and hand_result.handedness[index]:
-            label = hand_result.handedness[index][0].category_name.upper()
-        draw_hand(frame, landmarks, label)
-
-
 # ============================ 2) 摄像头与检测器 ============================
 
 
@@ -169,10 +67,7 @@ def open_camera() -> cv2.VideoCapture:
 
 def create_detectors():
     """创建同帧预览使用的人脸和手部检测器。"""
-    missing = [path.name for path in (FACE_MODEL, HAND_MODEL) if not path.exists()]
-    if missing:
-        raise FileNotFoundError(f"缺少模型：{', '.join(missing)}")
-    return create_face_landmarker(FACE_MODEL), create_hand_landmarker(HAND_MODEL)
+    return create_face_hand_landmarkers(FACE_MODEL, HAND_MODEL)
 
 
 # ============================ 3) 主流程 ============================
@@ -180,13 +75,7 @@ def create_detectors():
 
 def read_and_detect(cap, face_detector, hand_detector, started: float, *, video_time: float | None = None):
     """对同一张推理图运行双模型，返回帧、当前时间及两个检测结果。"""
-    prepared = read_detection_input(cap, started, clock=time.perf_counter, video_time=video_time)
-    if prepared is None:
-        return None
-    frame, now, image, timestamp_ms = prepared
-    face_result = face_detector.detect_for_video(image, timestamp_ms)
-    hand_result = hand_detector.detect_for_video(image, timestamp_ms)
-    return frame, now, face_result, hand_result
+    return read_face_hand_frame(cap, face_detector, hand_detector, started, clock=time.perf_counter, video_time=video_time)
 
 
 def stamp() -> str:
@@ -209,30 +98,15 @@ def save_snapshot(frame) -> Path:
 
 
 def window_is_alive(window_name: str = WINDOW_NAME) -> bool:
-    """点窗口右上角 ✕ 不会让 waitKey 返回任何值，只能自己问窗口还活着没。
-
-    调用关系：被 main() 每帧调用；返回 False 时 main() 就 break 退出循环。
-    """
-    try:
-        return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) >= 1
-    except cv2.error:
-        return False
+    """检查该入口的预览窗口是否仍然打开。"""
+    return preview_ui.window_is_alive(window_name)
 
 
 def pressed_key(now: float, key_available_at: float, delay_ms: int = 1, *, immediate_keys: str = ""):
-    """读一次按键并去抖，返回（按键小写字符 或 None, 新的可响应时间）。
-
-    调用关系：被预览入口每帧调用；内部调用 cv2.waitKey(delay_ms)
-    （这一次调用同时兼职：取按键 + 让窗口有机会刷新）。
-    immediate_keys 指定不等待防抖间隔的键，例如停止和退出。
-    """
-    raw_key = cv2.waitKey(delay_ms)
-    if raw_key == -1:
-        return None, key_available_at
-    key = chr(raw_key & 0xFF).lower()
-    if key not in immediate_keys and now < key_available_at:
-        return None, key_available_at
-    return key, now + KEY_DEBOUNCE_SECONDS
+    """按该入口的去抖间隔读取窗口按键。"""
+    return preview_ui.pressed_key(
+        now, key_available_at, delay_ms, debounce_seconds=KEY_DEBOUNCE_SECONDS, immediate_keys=immediate_keys,
+    )
 
 
 def main() -> None:

@@ -9,15 +9,16 @@ import sys
 import time
 
 import cv2
-import numpy as np
-from PIL import Image, ImageDraw, ImageFont
 
 # 兼容直接运行此脚本。
 if not __package__:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from camera.video_input import open_camera as open_video_camera  # noqa: E402
+from common import preview_ui  # noqa: E402
+from common.preview_ui import chinese_font, draw_chinese_status  # noqa: E402
 from common.paths import FACE_MODEL  # noqa: E402
+from vision.landmark_drawing import draw_eye_points  # noqa: E402
 from vision.mediapipe_video import create_face_landmarker, read_face_frame  # noqa: E402
 from interaction.blink_state import BlinkDetector, BlinkStatus  # noqa: E402
 from vision.eye_geometry import LEFT_EYE, RIGHT_EYE, average_ear, distance, eye_aspect_ratio  # noqa: E402
@@ -43,12 +44,6 @@ WELCOME_ART = (
 )
 
 WINDOW_NAME = "Blink Detection | Q quit | C recalibrate | visual test only"
-# 中文字体逐个探测：msyh 缺失时回退，换机器不会直接崩
-FONT_CANDIDATES = (
-    Path(r"C:\Windows\Fonts\msyh.ttc"),
-    Path(r"C:\Windows\Fonts\simhei.ttf"),
-    Path(r"C:\Windows\Fonts\arial.ttf"),
-)
 
 
 # ============================ 摄像头与画面 ============================
@@ -68,63 +63,12 @@ def face_detector():
     return create_face_landmarker(FACE_MODEL)
 
 
-_font_cache: dict[tuple[Path, int], "ImageFont.FreeTypeFont"] = {}
-
-
-def chinese_font(size: int):
-    """按 FONT_CANDIDATES 找到第一个可用字体并缓存，避免每帧重复读字体文件。
-
-    调用关系：被 draw_chinese_status() 调用（每帧两次：29 号大字、20 号小字）；
-    第一次真正读文件，之后直接命中缓存。
-    """
-    for path in FONT_CANDIDATES:
-        if not path.exists():
-            continue
-        cached = _font_cache.get((path, size))
-        if cached is None:
-            cached = ImageFont.truetype(str(path), size)
-            _font_cache[(path, size)] = cached
-        return cached
-    raise FileNotFoundError(
-        "找不到可用的中文字体，请检查 FONT_CANDIDATES：" + "、".join(str(p) for p in FONT_CANDIDATES)
-    )
-
-
-def draw_chinese_status(frame, lines) -> object:
-    """用 Windows 中文字体绘制状态栏，避免 OpenCV 英文字体无法显示中文。
-
-    调用关系：被 show_status() 调用；内部调用 chinese_font() 取字体。
-    注意它不修改传入的 frame，而是返回一张画好字的新图。
-    """
-    image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    draw = ImageDraw.Draw(image)
-    font_large = chinese_font(29)
-    font_small = chinese_font(20)
-    draw.text((14, 12), lines[0], font=font_small, fill=(0, 255, 0))
-    draw.text((14, 39), lines[1], font=font_large, fill=(255, 255, 0))
-    draw.text((14, 76), lines[2], font=font_small, fill=(255, 255, 255))
-    draw.text((14, 103), lines[3], font=font_small, fill=(255, 210, 80))
-    return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-
 # ============================ 主流程 ============================
 
 
 def read_frame(cap, detector, program_started_at: float):
     """返回镜像帧、当前时间和第一张脸的关键点。"""
     return read_face_frame(cap, detector, program_started_at, clock=time.perf_counter)
-
-
-def draw_eye_points(frame, landmarks) -> None:
-    """在画面上画黄点，方便肉眼检查关键点准不准。
-
-    调用关系：被 main() 每帧调用（只在检测到人脸时）；内部什么都不调用，
-    只往 frame 上画 12 个圆点——它不参与任何判定。
-    """
-    h, w = frame.shape[:2]
-    for index in LEFT_EYE + RIGHT_EYE:
-        lm = landmarks[index]
-        cv2.circle(frame, (int(lm.x * w), int(lm.y * h)), 3, (0, 255, 255), -1)
 
 
 def show_status(frame, status) -> None:
@@ -147,30 +91,15 @@ def show_status(frame, status) -> None:
 
 
 def window_is_alive() -> bool:
-    """点窗口右上角 ✕ 不会让 waitKey 返回任何值，只能自己问窗口还活着没。
-
-    调用关系：被 main() 每帧调用（循环第 5 步的第一件事）；
-    返回 False 时 main() 就 break 退出循环。
-    """
-    try:
-        return cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) >= 1
-    except cv2.error:
-        return False
+    """检查该入口的预览窗口是否仍然打开。"""
+    return preview_ui.window_is_alive(WINDOW_NAME)
 
 
 def pressed_key(now: float, key_available_at: float):
-    """读一次按键并去抖，返回（按键小写字符 或 None, 新的可响应时间）。
-
-    调用关系：被 main() 每帧调用；内部调用 cv2.waitKey(1)
-    （这一次调用同时兼职：取按键 + 让窗口有机会刷新）。
-    main() 拿返回值决定：'q' 退出、'c' 调 blink.reset()。
-    """
-    raw_key = cv2.waitKey(1)
-    if raw_key == -1:
-        return None, key_available_at
-    if now < key_available_at:  # 按住不放时系统会连发按键，靠最小间隔挡掉
-        return None, key_available_at
-    return chr(raw_key & 0xFF).lower(), now + KEY_DEBOUNCE_SECONDS
+    """按该入口的去抖间隔读取窗口按键。"""
+    return preview_ui.pressed_key(
+        now, key_available_at, debounce_seconds=KEY_DEBOUNCE_SECONDS,
+    )
 
 
 def main() -> None:

@@ -13,12 +13,15 @@ import time
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw
 
 # 脚本直接运行时，把 src/ 加进搜索路径以引入录像和串口接口
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from camera.video_input import frame_delay_ms, open_camera as open_video_camera, open_video  # noqa: E402
+from common import preview_ui  # noqa: E402
+from common.preview_ui import chinese_font  # noqa: E402
 from common.paths import FACE_MODEL as MODEL  # noqa: E402
+from vision.landmark_drawing import draw_points as draw_landmark_points  # noqa: E402
 from vision.mediapipe_video import create_face_landmarker, read_face_frame  # noqa: E402
 from interaction.gaze_blink_state import GazeBlinkDetector, GazeBlinkStatus  # noqa: E402
 from vision.eye_geometry import (  # noqa: E402
@@ -36,12 +39,6 @@ KEY_DEBOUNCE_SECONDS = 0.25                          # 两次按键响应的最�
 
 # ---- 路径与窗口 ----
 WINDOW = "Gaze Select + Blink Confirm | Q quit | C recalibrate | I invert | screen demo only"
-# 中文字体逐个探测：msyh 缺失时回退，换机器不会直接崩
-FONT_CANDIDATES = (
-    Path(r"C:\Windows\Fonts\msyh.ttc"),
-    Path(r"C:\Windows\Fonts\simhei.ttf"),
-    Path(r"C:\Windows\Fonts\arial.ttf"),
-)
 
 
 cat = r'''
@@ -70,27 +67,6 @@ def open_camera() -> cv2.VideoCapture:
 def make_detector():
     """为本入口创建一个 VIDEO 人脸检测器。"""
     return create_face_landmarker(MODEL)
-
-
-_font_cache: dict[tuple[Path, int], "ImageFont.FreeTypeFont"] = {}
-
-
-def chinese_font(size: int):
-    """按 FONT_CANDIDATES 找到第一个可用字体并缓存，避免每帧重复读字体文件。
-
-    调用关系：被 chinese_overlay() 和 cards() 调用；第一次真正读文件，之后命中缓存。
-    """
-    for path in FONT_CANDIDATES:
-        if not path.exists():
-            continue
-        cached = _font_cache.get((path, size))
-        if cached is None:
-            cached = ImageFont.truetype(str(path), size)
-            _font_cache[(path, size)] = cached
-        return cached
-    raise FileNotFoundError(
-        "找不到可用的中文字体，请检查 FONT_CANDIDATES：" + "、".join(str(p) for p in FONT_CANDIDATES)
-    )
 
 
 # ---- 界面配色（BGR）与几何常量 ----
@@ -225,14 +201,8 @@ def read_frame(cap, detector, started: float, *, video_time: float | None = None
 
 
 def draw_points(frame, landmarks) -> None:
-    """把用到的关键点画成黄点，方便肉眼检查识别准不准。
-
-    调用关系：被 main() 每帧调用（只在检测到人脸时）；只画图，不参与任何判定。
-    """
-    h, w = frame.shape[:2]
-    for idx in LEFT_IRIS + RIGHT_IRIS + LEFT_EYE + RIGHT_EYE:
-        p = landmarks[idx]
-        cv2.circle(frame, (int(p.x * w), int(p.y * h)), 2, (0, 255, 255), -1)
+    """用原有的两像素标记标出虹膜和眼睛轮廓。"""
+    draw_landmark_points(frame, landmarks, LEFT_IRIS + RIGHT_IRIS + LEFT_EYE + RIGHT_EYE, radius=2)
 
 
 def show_status(frame, status, now, fps, link_info) -> None:
@@ -241,28 +211,15 @@ def show_status(frame, status, now, fps, link_info) -> None:
 
 
 def window_is_alive() -> bool:
-    """点窗口右上角 ✕ 不会让 waitKey 返回任何值，只能自己问窗口还活着没。
-
-    调用关系：被 main() 每帧调用；返回 False 时 main() 就 break 退出循环。
-    """
-    try:
-        return cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) >= 1
-    except cv2.error:
-        return False
+    """检查该入口的预览窗口是否仍然打开。"""
+    return preview_ui.window_is_alive(WINDOW)
 
 
 def pressed_key(now: float, key_available_at: float, delay_ms: int = 1):
-    """读一次按键并去抖，返回（按键小写字符 或 None, 新的可响应时间）。
-
-    调用关系：被 main() 每帧调用；内部调用 cv2.waitKey(delay_ms)
-    （这一次调用同时兼职：取按键 + 让窗口有机会刷新）。
-    """
-    raw_key = cv2.waitKey(delay_ms)
-    if raw_key == -1:
-        return None, key_available_at
-    if now < key_available_at:  # 按住不放时系统会连发按键，靠最小间隔挡掉
-        return None, key_available_at
-    return chr(raw_key & 0xFF).lower(), now + KEY_DEBOUNCE_SECONDS
+    """按该入口的去抖间隔读取窗口按键。"""
+    return preview_ui.pressed_key(
+        now, key_available_at, delay_ms, debounce_seconds=KEY_DEBOUNCE_SECONDS,
+    )
 
 
 def main(video: Path | None = None, *, serial_port: str | None = None, firmware: str | None = None) -> None:

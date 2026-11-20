@@ -1,8 +1,8 @@
 """同屏预览手部和眼睛，并将经视线与眨眼确认的方向交给轮椅串口层。
 
 cli() → 选择模拟或实际串口 → main() 或 keyboard_serial.main()
-main() → 打开摄像头或录像 → landmarks_preview.create_detectors()
-  每帧 → read_and_detect() → 同帧的人脸与手部结果
+main() → 打开摄像头或录像 → create_face_hand_landmarkers()
+  每帧 → read_face_hand_frame() → 同帧的人脸与手部结果
        → update_eyes() → 已有的眨眼与视线状态机
        → WheelchairControl.update() → WheelchairLink → 串口或模拟
        → render_preview() → 眼部关键点、手部骨架和状态栏
@@ -21,18 +21,22 @@ SRC_DIR = str(Path(__file__).resolve().parents[1])
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-from camera.video_input import frame_delay_ms, open_video  # noqa: E402
+from camera.video_input import frame_delay_ms, open_camera as open_video_camera, open_video  # noqa: E402
+from common import preview_ui  # noqa: E402
+from common.paths import FACE_MODEL, HAND_MODEL  # noqa: E402
 from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402
 from hardware.serial_mode import select_serial_port  # noqa: E402
-from interaction import blink_preview, gaze_direction_preview, keyboard_serial  # noqa: E402
+from interaction import keyboard_serial  # noqa: E402
 from interaction.blink_state import BlinkDetector  # noqa: E402
 from interaction.gaze_blink_state import GazeBlinkDetector  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
-from vision import landmarks_preview  # noqa: E402
 from vision.eye_geometry import average_ear  # noqa: E402
+from vision.landmark_drawing import draw_eye_points, draw_hands, draw_iris_points  # noqa: E402
+from vision.mediapipe_video import create_face_hand_landmarkers, read_face_hand_frame  # noqa: E402
 
 WINDOW_NAME = "MediaPipe Hand and Eye Preview"
-PREVIEW_WIDTH, PREVIEW_HEIGHT = landmarks_preview.WIDTH, landmarks_preview.HEIGHT
+CAMERA_INDEX = 0
+PREVIEW_WIDTH, PREVIEW_HEIGHT = 960, 540
 PANEL_HEIGHT = 128
 
 
@@ -49,6 +53,14 @@ def update_eyes(now: float, face_result, blink, gaze):
 # ============================ 2) 设备与画面 ============================
 
 
+def open_camera() -> cv2.VideoCapture:
+    """打开手眼预览使用的摄像头。"""
+    return open_video_camera(
+        CAMERA_INDEX, PREVIEW_WIDTH, PREVIEW_HEIGHT,
+        error_message="摄像头无法打开：请关闭占用摄像头的软件，或将 CAMERA_INDEX 改为 1。",
+    )
+
+
 def render_preview(frame, face, hand_result, blink_status, gaze_status, link_status):
     """绘制眼部和手部关键点，在视频上方放置状态栏。"""
     height, width = frame.shape[:2]
@@ -58,9 +70,9 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status, link_sta
     else:
         frame = frame.copy()
     if face is not None:
-        blink_preview.draw_eye_points(frame, face)
-        gaze_direction_preview.draw_iris_points(frame, face)
-    landmarks_preview.draw_hands(frame, hand_result)
+        draw_eye_points(frame, face)
+        draw_iris_points(frame, face)
+    draw_hands(frame, hand_result)
 
     # 视频保持原宽高比，面板放在视频外，以免挡住关键点。
     side_padding = PREVIEW_WIDTH - frame.shape[1]
@@ -75,7 +87,7 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status, link_sta
         link_text = "模拟（串口未连接）"
     if link_status.is_low_battery:
         link_text += " / 低电锁定"
-    return blink_preview.draw_chinese_status(frame, (
+    return preview_ui.draw_chinese_status(frame, (
         f"眼睛 {eye_text}  |  手部 {len(hand_result.hand_landmarks)} 只  |  {link_text}  |  指令 {link_status.intent or '--'}",
         f"视线 {gaze_text}  |  眨眼 {blink_status.blink_count} 次",
         gaze_status.message,
@@ -91,9 +103,9 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
     if video is not None and serial_port is not None:
         raise ValueError("录像模式使用模拟，不能同时指定串口。")
     link = WheelchairLink(serial_port, firmware=firmware)
-    capture, fps = (landmarks_preview.open_camera(), None) if video is None else open_video(video)
+    capture, fps = (open_camera(), None) if video is None else open_video(video)
     try:
-        face_detector, hand_detector = landmarks_preview.create_detectors()
+        face_detector, hand_detector = create_face_hand_landmarkers(FACE_MODEL, HAND_MODEL)
         link.open()
         playback_started = time.perf_counter()
         started = playback_started if fps is None else 0.0
@@ -112,8 +124,8 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
 
         while True:
             video_time = frame_count / fps if fps is not None else None
-            result = landmarks_preview.read_and_detect(
-                capture, face_detector, hand_detector, started, video_time=video_time,
+            result = read_face_hand_frame(
+                capture, face_detector, hand_detector, started, clock=time.perf_counter, video_time=video_time,
             )
             if result is None:
                 if frame_count == 0:
@@ -127,11 +139,11 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
             preview = render_preview(frame, face, hand_result, blink_status, gaze_status, link_status)
             cv2.imshow(WINDOW_NAME, preview)
 
-            if not landmarks_preview.window_is_alive(WINDOW_NAME):
+            if not preview_ui.window_is_alive(WINDOW_NAME):
                 break
             key_time = time.perf_counter()
             delay = frame_delay_ms(playback_started, frame_count, fps, key_time)
-            key, key_available_at = landmarks_preview.pressed_key(
+            key, key_available_at = preview_ui.pressed_key(
                 key_time, key_available_at, delay, immediate_keys="sq",
             )
             if key == "q":
