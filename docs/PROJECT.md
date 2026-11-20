@@ -76,7 +76,7 @@ Eye-controlled wheelchair prototype — gaze + blink interaction. Python side ru
 ## 目录结构
 
 ```
-EyeWheelchairProject/
+wheerchair_mediapipe/
 ├─ src/
 │  ├─ camera/
 │  │  ├─ camera_preview.py            第 1 周：摄像头基线（预览 / 录像 / 截图）
@@ -108,9 +108,7 @@ EyeWheelchairProject/
 ├─ Related_materials/                 硬件照片、参考固件（ardino_demo.ino）等资料
 ├─ models/                            MediaPipe 模型文件（face / hand landmarker，已入库）
 ├─ data/                              录制素材（raw_videos / snapshots）
-├─ requirements.md                    依赖清单
-├─ GIT_GUIDE.md                       组员 Git 上手指南（分支规则 / 日常循环 / 提交格式）
-├─ Agent.md                           项目开发与代码规范（分层 / 接口 / 验证 / 硬件边界）
+├─ docs/                             项目说明、开发规范、依赖和 Git 指南
 └─ README.md
 ```
 
@@ -158,6 +156,8 @@ venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pil
 在 Git Bash 里把 `venv\Scripts\python.exe` 写成 `venv/Scripts/python.exe`，下文同理。
 
 ## 运行
+
+以下命令从仓库根目录运行。
 
 ```bash
 venv\Scripts\python.exe src\interaction\blink_preview.py
@@ -245,13 +245,13 @@ PC（Python + pyserial，9600 波特）──串口指令──▶ ATmega328P �
 
 ### 原始电机测试固件 / Original motor-test firmware
 
-`ardino_demo.ino` 原样复制自 `eye_gesture_control` 的 `8124d30`。指定真实串口时 Python 默认使用此协议，9600 波特，发送单字节。 [原始固件](firmware/eye_gesture_control/ardino_demo/ardino_demo.ino)
+`ardino_demo.ino` 原样复制自 `eye_gesture_control` 的 `8124d30`。指定真实串口时 Python 默认使用此协议，9600 波特，发送单字节。 [原始固件](../firmware/eye_gesture_control/ardino_demo/ardino_demo.ino)
 
 The sketch is copied unchanged from `eye_gesture_control` at `8124d30`. When a physical port is specified, Python defaults to this 9600-baud single-byte protocol.
 
-同一目录下的 [串口键盘测试工具](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) 支持相同的启动菜单。该目录的 `keyboard_serial.py` 配合上一级的 `ardino_demo.ino` 使用，`serial_wsad.ino` 是独立的 WSAD 测试固件。
+同一目录下的 [串口键盘测试工具](../firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) 支持相同的启动菜单。该目录的 `keyboard_serial.py` 配合上一级的 `ardino_demo.ino` 使用，`serial_wsad.ino` 是独立的 WSAD 测试固件。
 
-The [keyboard serial test tools](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) support the same startup menu. The directory's `keyboard_serial.py` pairs with the parent `ardino_demo.ino`, and `serial_wsad.ino` is a standalone WSAD test sketch.
+The [keyboard serial test tools](../firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) support the same startup menu. The directory's `keyboard_serial.py` pairs with the parent `ardino_demo.ino`, and `serial_wsad.ino` is a standalone WSAD test sketch.
 
 | 串口字节 / Byte | 固件行为 / Action |
 |---|---|
@@ -281,10 +281,10 @@ The sketch reads the next serial command after the current pulse finishes. Pytho
 
 两个固件文件按原项目归档版本恢复。 [归档提交 `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
 
-- 原始参考草图按字节保留。 [原始参考草图](Related_materials/ardino_demo/ardino_demo.ino)
+- 原始参考草图按字节保留。 [原始参考草图](../Related_materials/ardino_demo/ardino_demo.ino)
 - 修订版控制器包含看门狗、串口 char 缓冲、转向先停、
   PWM 频率修正（约 18kHz）、电池平均+迟滞、低电限流等，每处改动带【修订】标记，
-  文件底部有 **7 条台架验证清单**（接线核对、噪音/温度、看门狗、长跑、转向先停、低电模拟、电压对表）。 [修订版控制器](firmware/wheelchair_controller/wheelchair_controller.ino)
+  文件底部有 **7 条台架验证清单**（接线核对、噪音/温度、看门狗、长跑、转向先停、低电模拟、电压对表）。 [修订版控制器](../firmware/wheelchair_controller/wheelchair_controller.ino)
 
 两个草图均通过 Arduino Uno 编译检查（Arduino AVR Boards 1.8.8、TimerOne 1.1.1）。台架验证仍待完成。
 
@@ -364,7 +364,7 @@ Why use two dimensions (gaze + blink): gaze is responsible for "selecting," blin
 ## Directory Structure
 
 ```
-EyeWheelchairProject/
+wheerchair_mediapipe/
 ├─ src/
 │  ├─ camera/
 │  │  ├─ camera_preview.py            Week 1: Camera baseline (preview / record / snapshot)
@@ -396,9 +396,7 @@ EyeWheelchairProject/
 ├─ Related_materials/                 Hardware photos, reference firmware (ardino_demo.ino), etc.
 ├─ models/                            MediaPipe model files (face / hand landmarker, checked in)
 ├─ data/                              Recorded materials (raw_videos / snapshots)
-├─ requirements.md                    Dependency list
-├─ GIT_GUIDE.md                       Teammate Git onboarding guide (branch rules / daily loop / commit format)
-├─ Agent.md                           Development and code standards (layers / contracts / validation / hardware boundaries)
+├─ docs/                             Project, development, dependency, and Git guides
 └─ README.md
 ```
 
@@ -445,6 +443,8 @@ venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pil
 In Git Bash, write `venv\Scripts\python.exe` as `venv/Scripts/python.exe`; the same applies below.
 
 ## Running
+
+Run the commands below from the repository root.
 
 ```bash
 venv\Scripts\python.exe src\interaction\blink_preview.py
@@ -526,8 +526,8 @@ The firmware has four built-in safety layers: **auto-stop after 3 s without a co
 
 Both firmware sketches were restored from the original project archive. [Archived commit `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
 
-- The original reference sketch is preserved byte-for-byte. [Reference sketch](Related_materials/ardino_demo/ardino_demo.ino)
-- The revised controller includes the watchdog, serial char buffer, stop-before-turn, PWM frequency fix (~18 kHz), battery averaging and hysteresis, and throttled low-battery warnings. The revision markers and seven-item bench checklist are in the sketch. [Revised controller](firmware/wheelchair_controller/wheelchair_controller.ino)
+- The original reference sketch is preserved byte-for-byte. [Reference sketch](../Related_materials/ardino_demo/ardino_demo.ino)
+- The revised controller includes the watchdog, serial char buffer, stop-before-turn, PWM frequency fix (~18 kHz), battery averaging and hysteresis, and throttled low-battery warnings. The revision markers and seven-item bench checklist are in the sketch. [Revised controller](../firmware/wheelchair_controller/wheelchair_controller.ino)
 
 Both sketches compiled for Arduino Uno with Arduino AVR Boards 1.8.8 and TimerOne 1.1.1. Bench verification is pending.
 

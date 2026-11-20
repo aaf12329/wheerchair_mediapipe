@@ -8,12 +8,12 @@ An eye-controlled wheelchair vision prototype using OpenCV and MediaPipe. It tra
 
 | 要做什么 / Task | 入口 / Entry point |
 |---|---|
-| 了解交互设计与历史记录 / Read the design and project history | [项目文档 / Project notes](EyeWheelchairProject/README.md) |
-| 检查摄像头 / Check the camera | [摄像头预览 / Camera preview](EyeWheelchairProject/src/camera/camera_preview.py) |
-| 查看人脸和手部关键点 / Inspect face and hand landmarks | [关键点预览 / Landmark preview](EyeWheelchairProject/src/vision/landmarks_preview.py) |
-| 演示视线与眨眼交互 / Run the gaze and blink demo | [主程序 / Demo entry point](EyeWheelchairProject/src/interaction/gaze_blink_confirm_demo.py) |
-| 同屏检测手部与眼睛并演示方向指令 / Preview hands and eyes with direction commands | [手眼预览 / Hand and eye preview](EyeWheelchairProject/src/interaction/hand_eye_preview.py) |
-| 用键盘测试方向指令 / Test direction commands from the keyboard | [键盘模式 / Keyboard mode](EyeWheelchairProject/README.md#键盘模式--keyboard-mode) |
+| 了解交互设计与历史记录 / Read the design and project history | [项目文档 / Project notes](docs/PROJECT.md) |
+| 检查摄像头 / Check the camera | [摄像头预览 / Camera preview](src/camera/camera_preview.py) |
+| 查看人脸和手部关键点 / Inspect face and hand landmarks | [关键点预览 / Landmark preview](src/vision/landmarks_preview.py) |
+| 演示视线与眨眼交互 / Run the gaze and blink demo | [主程序 / Demo entry point](src/interaction/gaze_blink_confirm_demo.py) |
+| 同屏检测手部与眼睛并演示方向指令 / Preview hands and eyes with direction commands | [手眼预览 / Hand and eye preview](src/interaction/hand_eye_preview.py) |
+| 用键盘测试方向指令 / Test direction commands from the keyboard | [键盘模式 / Keyboard mode](docs/PROJECT.md#键盘模式--keyboard-mode) |
 | 接手仓库或修改代码 / Work on the repository | [AGENTS.md](AGENTS.md) |
 | 查看许可 / Read the license | [MIT License](LICENSE) |
 
@@ -25,11 +25,11 @@ Camera or video frames go through the shared input and MediaPipe modules. The ey
 
 | 模块 / Module | 职责 / Responsibility |
 |---|---|
-| [`camera/video_input.py`](EyeWheelchairProject/src/camera/video_input.py) | 摄像头、录像和播放节奏 / Camera, recordings, and playback timing |
-| [`vision/`](EyeWheelchairProject/src/vision/) | MediaPipe 推理、眼部几何和关键点绘制 / MediaPipe inference, eye geometry, and landmark drawing |
-| [`interaction/`](EyeWheelchairProject/src/interaction/) | 预览入口、眼动状态机、键盘和方向控制 / Demos, eye state machines, keyboard input, and direction control |
-| [`hardware/`](EyeWheelchairProject/src/hardware/) | 模式选择、串口发送和协议 / Mode selection, serial output, and protocols |
-| [`common/`](EyeWheelchairProject/src/common/) | 项目路径、窗口按键和中文字体 / Project paths, window input, and Chinese fonts |
+| [`camera/video_input.py`](src/camera/video_input.py) | 摄像头、录像和播放节奏 / Camera, recordings, and playback timing |
+| [`vision/`](src/vision/) | MediaPipe 推理、眼部几何和关键点绘制 / MediaPipe inference, eye geometry, and landmark drawing |
+| [`interaction/`](src/interaction/) | 预览入口、眼动状态机、键盘和方向控制 / Demos, eye state machines, keyboard input, and direction control |
+| [`hardware/`](src/hardware/) | 模式选择、串口发送和协议 / Mode selection, serial output, and protocols |
+| [`common/`](src/common/) | 项目路径、窗口按键和中文字体 / Project paths, window input, and Chinese fonts |
 
 ## 分支 / Branches
 
@@ -38,9 +38,9 @@ Camera or video frames go through the shared input and MediaPipe modules. The ey
 | `main` | 本仓库的 MediaPipe 基线 / Baseline for this repository's MediaPipe implementation |
 | `chen/main` | 从本仓库 `main` 建立的 Chen 开发主线 / Chen's development branch based on this repository's `main` |
 
-`EyeWheelchairProject` 项目文档中的 `chen` 指原仓库的历史分支。`chen/main` 的起点是本仓库的 MediaPipe 代码。
+项目文档中的 `chen` 指原仓库的历史分支。`chen/main` 的起点是本仓库的 MediaPipe 代码。
 
-The `chen` branch mentioned in the `EyeWheelchairProject` notes refers to the original repository. The `chen/main` branch starts from the MediaPipe code in this repository.
+The `chen` branch mentioned in the project notes refers to the original repository. The `chen/main` branch starts from the MediaPipe code in this repository.
 
 ## 运行与测试 / Run and test
 
@@ -65,10 +65,10 @@ When starting the main gaze demo, hand and eye preview, or standalone keyboard s
 The gaze and hand-eye demos use the `ardino_demo.ino` `motor-test` protocol by default when a serial port is specified. Pass `--firmware motor-test` to use the same command set in simulation.
 
 ```powershell
-python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py
-python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
-python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py
-python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
-python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
-python -m pytest -q .\EyeWheelchairProject\tests
+python .\src\interaction\gaze_blink_confirm_demo.py
+python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
+python .\src\interaction\hand_eye_preview.py
+python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
+python .\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
+python -m pytest -q .\tests
 ```

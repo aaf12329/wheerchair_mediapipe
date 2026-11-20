@@ -18,8 +18,8 @@ git config --global user.email "你的邮箱"        # 建议用注册 GitHub �
 
 ```bash
 # 第一次:克隆到本地
-git clone https://github.com/aaf12329/EyeWheelchairProject.git
-cd EyeWheelchairProject
+git clone --branch chen/main https://github.com/aaf12329/wheerchair_mediapipe.git
+cd wheerchair_mediapipe
 
 # 以后每次开始干活前:拉取最新代码
 git pull
