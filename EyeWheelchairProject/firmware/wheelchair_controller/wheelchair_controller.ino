@@ -91,7 +91,7 @@ unsigned long directionChangeStart = 0;
 
 // 转向请求状态（等停稳后执行）
 bool pendingTurnChange = false;
-char pendingTurnType = ' '; // L/R 原地转向，3/4 弧线转向
+char pendingTurnType = ' '; // 'L' 或 'R'
 unsigned long turnChangeStart = 0;
 
 // ========== 函数声明 ==========
@@ -103,7 +103,7 @@ void setMotorTarget(Motor* m, int target, bool dirA, bool dirB);
 void stopAll();
 bool needDirectionChange(bool newDirA, bool newDirB);
 void handleDirectionChange(bool newDirA, bool newDirB);
-void handleTurnRequest(char type);          // 转向请求，方向反转前先停稳
+void handleTurnRequest(char type);          // 【P2-9】L/R 共用的"后退先停"逻辑
 void checkDirectionChange();
 void checkTurnChange();
 void checkCommandTimeout();
@@ -162,6 +162,7 @@ void loop() {
         buffer[len] = '\0';
         len = 0;
         processCommand(buffer);
+        lastCmdTime = millis();
       }
       continue;                     // 连续换行/空行在这里被自然过滤
     }
@@ -174,6 +175,7 @@ void loop() {
     buffer[len] = '\0';
     len = 0;
     processCommand(buffer);
+    lastCmdTime = millis();
   }
 
   // 检查指令超时
@@ -293,11 +295,12 @@ void mixSpeedRightHalf() {
 
 // ========== 方向切换处理 ==========
 bool needDirectionChange(bool newDirA, bool newDirB) {
-  // 减速时目标速度已经是 0，仍需等当前速度降下来才能反转。
-  bool m1Moving = m1.targetSpeed != 0 || abs(m1.currentSpeed) >= STOP_THRESHOLD;
-  bool m2Moving = m2.targetSpeed != 0 || abs(m2.currentSpeed) >= STOP_THRESHOLD;
-  return (m1Moving && (m1.dirA != newDirA || m1.dirB != newDirB)) ||
-         (m2Moving && (m2.dirA != newDirA || m2.dirB != newDirB));
+  // 当前停止状态时不要求方向切换
+  if (m1.targetSpeed == 0 && m2.targetSpeed == 0) {
+    return false;
+  }
+  return (m1.dirA != newDirA || m1.dirB != newDirB) ||
+         (m2.dirA != newDirA || m2.dirB != newDirB);
 }
 
 void handleDirectionChange(bool newDirA, bool newDirB) {
@@ -330,31 +333,20 @@ void checkDirectionChange() {
     // 电机已停止，执行方向切换
     setMotorTarget(&m1, FULL_SPEED, targetDirA, targetDirB);
     setMotorTarget(&m2, FULL_SPEED, targetDirA, targetDirB);
-    lastCommand = targetDirA ? 'B' : 'F';
     pendingDirectionChange = false;
     Serial.println("Direction changed");
   }
 }
 
 // ========== 转向切换处理 ==========
-void applyTurn(char type) {
-  switch (type) {
-    case 'L': turnLeft(); break;
-    case 'R': turnRight(); break;
-    case '3': mixSpeedLeftHalf(); break;
-    case '4': mixSpeedRightHalf(); break;
-  }
-}
-
+// 【P2-9】原来 processCommand 里 L/R 两个分支各抄了一遍"后退中先停再挂起"，
+// 提到这里共用；【P0-4】原来只有"后退中"才走这条路，现在任何运动状态中
+// 收到转向请求且方向需要翻转，都先停稳再转。
 void handleTurnRequest(char type) {
-  // 同一转向的心跳应维持当前动作。
-  if (lastCommand == type && m1.targetSpeed != 0 && m2.targetSpeed != 0) return;
-
-  // Tuski 的 3/4 是两轮同向的弧线转向，从倒车等状态切换时需先停稳。
-  bool arc = type == '3' || type == '4';
-  bool moving = m1.targetSpeed != 0 || m2.targetSpeed != 0 ||
-                abs(m1.currentSpeed) >= STOP_THRESHOLD || abs(m2.currentSpeed) >= STOP_THRESHOLD;
-  if (arc ? needDirectionChange(LOW, HIGH) : moving) {
+  // 当前在运动且转向会造成至少一个电机方向翻转 → 必须先停稳
+  // （转向指令本身就要一正一反两个方向，运动中直接翻转 = 瞬间换向，大电流冲击）
+  bool moving = (m1.targetSpeed != 0 || m2.targetSpeed != 0);
+  if (moving) {
     // 设置减速停止
     setMotorTarget(&m1, 0, m1.dirA, m1.dirB);
     setMotorTarget(&m2, 0, m2.dirA, m2.dirB);
@@ -363,9 +355,14 @@ void handleTurnRequest(char type) {
     pendingTurnChange = true;
     pendingTurnType = type;
     turnChangeStart = millis();
-    Serial.println(type == 'L' || type == '3' ? "Pending left turn after stop" : "Pending right turn after stop");
+    Serial.println(type == 'L' ? "Pending left turn after stop" : "Pending right turn after stop");
   } else {
-    applyTurn(type);
+    // 静止状态直接转向
+    if (type == 'L') {
+      turnLeft();
+    } else {
+      turnRight();
+    }
   }
 }
 
@@ -383,7 +380,11 @@ void checkTurnChange() {
   if (abs(m1.currentSpeed) < STOP_THRESHOLD &&
       abs(m2.currentSpeed) < STOP_THRESHOLD) {
     // 电机已停止，执行转向
-    applyTurn(pendingTurnType);
+    if (pendingTurnType == 'L') {
+      turnLeft();
+    } else if (pendingTurnType == 'R') {
+      turnRight();
+    }
     pendingTurnChange = false;
     Serial.println("Turn direction changed");
   }
@@ -405,15 +406,18 @@ void stopAll() {
 }
 
 void checkCommandTimeout() {
-  // 失联时也要取消等待中的转向，避免停稳后自行起步。
-  if (!pendingDirectionChange && !pendingTurnChange && lastCommand == 'S') return;
+  // 如果有待处理的切换，不触发超时停止
+  if (pendingDirectionChange || pendingTurnChange) {
+    lastCmdTime = millis(); // 重置超时计时器
+    return;
+  }
+
+  if (lastCommand == 'S' || lastCommand == '0') return;
 
   unsigned long currentTime = millis();
 
   if (currentTime - lastCmdTime > CMD_TIMEOUT) {
     Serial.println("Command timeout - stopping motors");
-    pendingDirectionChange = false;
-    pendingTurnChange = false;
     stopMotors();
   }
 }
@@ -437,9 +441,6 @@ void checkBatteryStatus() {
   //   临界电压附近同样会横跳——两种毛病都堵上了）
   if (!isBatteryLow && batteryVoltage <= LOCKOUT_VOLTAGE) {
     isBatteryLow = true;
-    pendingDirectionChange = false;
-    pendingTurnChange = false;
-    stopMotors();
   } else if (isBatteryLow && batteryVoltage >= UNLOCK_VOLTAGE) {
     isBatteryLow = false;
     lowBatteryAnnounced = false;   // 解锁后允许下一次落锁再提示
@@ -474,12 +475,6 @@ void sendSensorData() {
 // ========== 命令处理函数 ==========
 // 【P0-5】参数从 String 改为 const char*（配合 char 缓冲，堆上零分配）
 void processCommand(const char* cmd) {
-  // 电池查询不改变正在等待停稳的动作。
-  if (strcmp(cmd, "GET_DATA") == 0) {
-    sendSensorData();
-    return;
-  }
-
   // 低电量时只允许停止命令
   bool isStopCmd = (strcmp(cmd, "S") == 0 || strcmp(cmd, "0") == 0);
   if (isBatteryLow && !isStopCmd) {
@@ -487,21 +482,7 @@ void processCommand(const char* cmd) {
     return;
   }
 
-  // 心跳重复当前请求时，保留已在进行的减速和切换计时。
-  bool forward = strcmp(cmd, "1") == 0 || strcmp(cmd, "F") == 0;
-  bool backward = strcmp(cmd, "2") == 0 || strcmp(cmd, "B") == 0;
-  bool turn = cmd[0] != '\0' && cmd[1] == '\0' && strchr("LR34", cmd[0]) != nullptr;
-  if (!isStopCmd && !forward && !backward && !turn) {
-    Serial.print("Unknown command: ");
-    Serial.println(cmd);
-    return;
-  }
-  lastCmdTime = millis();
-  if (pendingTurnChange && turn && pendingTurnType == cmd[0]) return;
-  if (pendingDirectionChange && ((forward && !targetDirA && targetDirB) ||
-                                 (backward && targetDirA && !targetDirB))) return;
-
-  // 与当前意图不同的运动指令或停止取消待处理请求。
+  // 新命令到来时清除待处理的切换请求
   pendingDirectionChange = false;
   pendingTurnChange = false;
 
@@ -510,16 +491,35 @@ void processCommand(const char* cmd) {
     stopMotors();
   }
   // 处理前进命令
-  else if (forward) {
+  else if (strcmp(cmd, "1") == 0 || strcmp(cmd, "F") == 0) {
     moveForward();
   }
   // 处理后退命令
-  else if (backward) {
+  else if (strcmp(cmd, "2") == 0 || strcmp(cmd, "B") == 0) {
     moveBackward();
   }
-  // L/R 原地转向，3/4 弧线转向。
-  else if (turn) {
-    handleTurnRequest(cmd[0]);
+  // 处理混合速度
+  else if (strcmp(cmd, "3") == 0) {
+    mixSpeedLeftHalf();
+  }
+  else if (strcmp(cmd, "4") == 0) {
+    mixSpeedRightHalf();
+  }
+  // 处理转向命令：【P0-4】任何运动状态中都先停稳再转（原来只有后退中才保护）；
+  // 【P2-9】L/R 共用 handleTurnRequest()
+  else if (strcmp(cmd, "L") == 0) {
+    handleTurnRequest('L');
+  }
+  else if (strcmp(cmd, "R") == 0) {
+    handleTurnRequest('R');
+  }
+  // 处理数据请求
+  else if (strcmp(cmd, "GET_DATA") == 0) {
+    sendSensorData();
+  }
+  else {
+    Serial.print("Unknown command: ");
+    Serial.println(cmd);
   }
 }
 

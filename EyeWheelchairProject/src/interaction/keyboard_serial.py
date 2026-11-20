@@ -9,7 +9,7 @@ main() → 打开 WheelchairLink → run_keyboard()
 import sys
 import time
 
-from hardware.serial_link import MOTOR_TEST_FIRMWARE, TUSKI_FIRMWARE, WheelchairLink
+from hardware.serial_link import MOTOR_TEST_FIRMWARE, WheelchairLink
 
 ARROW_KEYS = {"H": "up", "K": "left", "M": "right", "P": "down"}
 KEY_COMMANDS = {
@@ -18,13 +18,11 @@ KEY_COMMANDS = {
     "d": "R", "r": "R", "right": "R",
     "s": "S", " ": "S", "down": "S",
 }
-TUSKI_KEYS = KEY_COMMANDS | {"0": "S", "1": "F", "2": "B", "3": "L", "4": "R", "b": "B", "x": "S"}
 MOTOR_TEST_KEYS = {
     "1": "1", "2": "2", "3": "3", "4": "4",
     "w": "F", "f": "F", "up": "F",
     "s": "S", "x": "S", " ": "S", "down": "S",
 }
-COMMANDS_BY_FIRMWARE = {TUSKI_FIRMWARE: TUSKI_KEYS, MOTOR_TEST_FIRMWARE: MOTOR_TEST_KEYS}
 KEY_IDLE_STOP_SECONDS = 0.7
 POLL_INTERVAL_SECONDS = 0.02
 
@@ -41,7 +39,7 @@ def read_key(console) -> str | None:
 
 def run_keyboard(console, link: WheelchairLink) -> None:
     """将当前控制键交给串口层。方向键停止重复后清除运动意图。"""
-    commands = COMMANDS_BY_FIRMWARE.get(link.firmware, KEY_COMMANDS)
+    commands = MOTOR_TEST_KEYS if link.firmware == MOTOR_TEST_FIRMWARE else KEY_COMMANDS
     stop_at = None
     while True:
         key = read_key(console)
@@ -78,8 +76,6 @@ def main(serial_port: str | None = None, *, firmware: str | None = None) -> None
             print("键盘模拟模式。")
         if link.firmware == MOTOR_TEST_FIRMWARE:
             print("1/2 单电机前进 | 3/4 单电机后退 | W/F/↑ 双电机前进 | S/X/空格/↓ 停止 | Q/Esc 退出")
-        elif link.firmware == TUSKI_FIRMWARE:
-            print("1/W/F/↑ 前进 | 2/B 后退 | 3/A/L/← 左转 | 4/D/R/→ 右转 | 0/S/X/空格/↓ 停止 | Q/Esc 退出")
         else:
             print("W/F/↑ 前进 | A/L/← 左转 | D/R/→ 右转 | S/空格/↓ 停止 | Q/Esc 退出")
         try:

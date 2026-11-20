@@ -23,7 +23,7 @@ from test_serial_link import FakeSerial, make_link, movement_letters
     (["invalid", "2", " COM9 "], "COM9"),
     ([EOFError()], None),
 ])
-def test_visual_cli_uses_selected_output_mode(monkeypatch, capsys, entry, answers, expected_port):
+def test_visual_cli_uses_selected_output_mode(monkeypatch, entry, answers, expected_port):
     run = Mock()
     monkeypatch.setattr(entry, "main", run)
     monkeypatch.setattr(sys, "argv", [entry.__file__])
@@ -33,8 +33,6 @@ def test_visual_cli_uses_selected_output_mode(monkeypatch, capsys, entry, answer
     entry.cli()
 
     run.assert_called_once_with(None, serial_port=expected_port, firmware=None)
-    if expected_port is not None:
-        assert "wheelchair_controller.ino" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("entry", [demo, gaze_demo])
@@ -135,8 +133,7 @@ def test_video_cannot_open_serial_port(tmp_path, monkeypatch):
     transport.assert_not_called()
 
 
-@pytest.mark.parametrize(("firmware", "forward", "stop"), [(None, "1", "0"), ("wheelchair", "F", "S")])
-def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypatch, capsys, firmware, forward, stop):
+def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypatch, capsys):
     eyes_open = SimpleNamespace(face_landmarks=[eye_landmarks(0.5, 0.3)])
     eyes_closed = SimpleNamespace(face_landmarks=[eye_landmarks(0.5, 0.0)])
     before_blink = [eyes_open] * 130
@@ -155,7 +152,7 @@ def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypat
     face_detector = SimpleNamespace(detect_for_video=Mock(side_effect=landmarks))
     hand_detector = SimpleNamespace(detect_for_video=Mock(return_value=SimpleNamespace(hand_landmarks=[])))
     port = FakeSerial()
-    link = demo.WheelchairLink("COM9", firmware=firmware, port_factory=lambda *args, **kwargs: port)
+    link = demo.WheelchairLink("COM9", firmware="wheelchair", port_factory=lambda *args, **kwargs: port)
     open_transport = Mock(return_value=link)
     displayed = Mock(return_value=frame)
     monkeypatch.setattr(capture, "read", read_at_recorded_rate)
@@ -168,20 +165,20 @@ def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypat
     # S 和 Q 都应在上一次按键不到 0.25 秒时响应。
     simulate_window(monkeypatch, [-1] * (len(landmarks) - 3) + [ord("X"), ord("S"), ord("Q")])
 
-    demo.main(serial_port="COM9", firmware=firmware)
+    demo.main(serial_port="COM9", firmware="wheelchair")
 
-    open_transport.assert_called_once_with("COM9", firmware=firmware)
+    open_transport.assert_called_once_with("COM9", firmware="wheelchair")
     assert displayed.call_args_list[len(before_blink) - 1].args[4].state == "等待眨眼"
     confirmed = displayed.call_args_list[-2].args[4]
     assert (confirmed.state, confirmed.active) == ("确认成功", "前进")
     assert displayed.call_args.args[4].state == "校准"
-    assert displayed.call_args.args[5].intent == stop
+    assert displayed.call_args.args[5].intent == "S"
     commands = movement_letters(port)
-    first_movement = commands.index(forward)
-    assert commands[0] == stop
-    assert all(command == stop for command in commands[:first_movement])
-    assert commands[first_movement:] == [forward, stop]
-    assert f"[串口 COM9] 已发送 {forward}" in capsys.readouterr().out
+    first_movement = commands.index("F")
+    assert commands[0] == "S"
+    assert all(command == "S" for command in commands[:first_movement])
+    assert commands[first_movement:] == ["F", "S"]
+    assert "[串口 COM9] 已发送 F" in capsys.readouterr().out
     assert capture.released and port.closed
 
 

@@ -201,8 +201,7 @@ def test_gaze_preview_selects_inverts_and_recalibrates(monkeypatch):
     assert statuses[-1].candidate == "无"
 
 
-@pytest.mark.parametrize(("firmware", "forward", "stop"), [(None, b"1\n", b"0\n"), ("wheelchair", b"F\n", b"S\n")])
-def test_demo_converts_detected_blink_to_serial_bytes(monkeypatch, firmware, forward, stop):
+def test_demo_converts_detected_blink_to_serial_bytes(monkeypatch):
     eyes_open = eye_landmarks(0.5, 0.3)
     eyes_closed = eye_landmarks(0.5, 0.0)
     before_blink = [eyes_open] * 130
@@ -220,7 +219,7 @@ def test_demo_converts_detected_blink_to_serial_bytes(monkeypatch, firmware, for
     detect = Mock(side_effect=[SimpleNamespace(face_landmarks=[points]) for points in landmarks])
     detector = SimpleNamespace(detect_for_video=detect)
     port = FakeSerial()
-    link = demo.WheelchairLink("test-port", firmware=firmware, port_factory=lambda *args, **kwargs: port)
+    link = demo.WheelchairLink("test-port", firmware="wheelchair", port_factory=lambda *args, **kwargs: port)
     statuses = Mock()
     monkeypatch.setattr(source, "read", read_at_recorded_rate)
     monkeypatch.setattr(demo, "time", SimpleNamespace(perf_counter=lambda: frame_number / 30))
@@ -231,14 +230,14 @@ def test_demo_converts_detected_blink_to_serial_bytes(monkeypatch, firmware, for
     monkeypatch.setattr(demo, "WheelchairLink", Mock(return_value=link))
     simulate_window(monkeypatch, [-1] * (len(landmarks) - 1) + [ord("Q")])
 
-    demo.main(serial_port="test-port", firmware=firmware)
+    demo.main(serial_port="test-port", firmware="wheelchair")
 
     assert detect.call_count == len(landmarks)
     assert statuses.call_args_list[len(before_blink) - 1].args[1].state == "等待眨眼"
     confirmation = statuses.call_args.args[1]
     assert (confirmation.state, confirmation.active) == ("确认成功", "前进")
     assert b"GET_DATA\n" in port.tx
-    assert [command for command in port.tx if command != b"GET_DATA\n"] == [forward, stop]
+    assert [command for command in port.tx if command != b"GET_DATA\n"] == [b"F\n", b"S\n"]
     assert port.closed and source.released
 
 

@@ -96,7 +96,7 @@ EyeWheelchairProject/
 │     └─ serial_link.py               串口输出层：意图→指令、心跳、电池、低电锁（默认模拟）
 ├─ tests/                             pytest：眨眼判定 / 串口链路 / 界面渲染 + 模型冒烟测试
 ├─ firmware/
-│  ├─ wheelchair_controller/        Arduino 修订版固件，支持 tuski 和 wheelchair
+│  ├─ wheelchair_controller/        Arduino 修订版固件，协议 wheelchair
 │  └─ eye_gesture_control/
 │     └─ ardino_demo/ardino_demo.ino 原始电机测试草图，协议 motor-test
 ├─ Related_materials/                 硬件照片、参考固件（ardino_demo.ino）等资料
@@ -168,7 +168,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 ```
 
 手眼预览在同一帧运行人脸与手部模型，同时显示双眼与虹膜关键点、最多两只手的骨架、视线方向和眨眼次数。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。
-注视选方向并眨眼确认后，终端会打印指令。模拟和串口默认使用 `tuski`，连接时配合修订版的 `wheelchair_controller.ino`。`--firmware motor-test` 连接原单电机测试草图，`--firmware wheelchair` 使用修订版固件的字母指令。手部用于检测显示。
+注视选方向并眨眼确认后，终端会打印指令。连接串口时默认使用 `motor-test`，眼控可发送前进与停止。使用本仓库修订版轮椅固件时可加 `--firmware wheelchair` 以使用对应的转向、心跳和电池查询。手部用于检测显示。
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
@@ -192,27 +192,26 @@ python .\src\interaction\hand_eye_preview.py --serial-port COM3
 
 ### 键盘模式 / Keyboard mode
 
-在 Windows 终端运行，按键从终端读取，无需摄像头。第一条命令打开模式菜单，按回车即可模拟 Tuski 的数字指令。第二条直接连接串口，将 COM3 换成主控板串口。
+在 Windows 终端运行，按键从终端读取，无需摄像头。第一条命令打开模式菜单，按回车即可模拟原始固件。第二条直接连接串口，将 COM3 换成主控板串口。
 
-Run this in an interactive Windows terminal. The first command opens the mode menu. Press Enter to simulate Tuski's numeric commands. The second connects directly to the controller. Replace COM3 with its serial port.
+Run this in an interactive Windows terminal. The first command opens the mode menu. Press Enter to simulate the original firmware. The second connects directly to the controller. Replace COM3 with its serial port.
 
 ```powershell
-python .\src\interaction\hand_eye_preview.py --keyboard
+python .\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
 python .\src\interaction\hand_eye_preview.py --keyboard --serial-port COM3
 ```
 
-| 按键 / Keys | Tuski 指令 / Tuski command |
+| 按键 / Keys | 原始固件指令 / Motor-test command |
 |---|---|
-| `0` / `S` / `X` / 空格 / ↓ | `0` 停止 / Stop |
-| `1` / `W` / `F` / ↑ | `1` 前进 / Forward |
-| `2` / `B` | `2` 后退 / Backward |
-| `3` / `A` / `L` / ← | `3` 左转 / Left arc |
-| `4` / `D` / `R` / → | `4` 右转 / Right arc |
-| `Q` / `Esc` | `0` 停止并退出 / Stop and quit |
+| `1` / `2` | M1 / M2 单电机前进 / Run M1 or M2 forward |
+| `3` / `4` | M1 / M2 单电机后退 / Run M1 or M2 backward |
+| `W` / `F` / ↑ | `F` 双电机前进 / Both motors forward |
+| `S` / `X` / 空格 / ↓ | `S` 请求停止 / Request stop |
+| `Q` / `Esc` | 请求停止并退出 / Request stop and quit |
 
-约 0.7 秒没有再收到动作键输入时，Python 发送停止请求。`--firmware wheelchair` 保留字母转向指令，`--firmware motor-test` 使用原固件的单电机测试按键。
+约 0.7 秒没有再收到动作键输入时，Python 发送停止请求。修订版轮椅固件用 `--firmware wheelchair`，其键盘模式使用 `A` / ← 左转、`D` / → 右转，并保留心跳和电池查询。
 
-After about 0.7 seconds without another motion key event, Python sends a stop request. Choose `--firmware wheelchair` to retain letter commands, or `--firmware motor-test` to use the original sketch's single-motor test keys.
+After about 0.7 seconds without another motion key event, Python sends a stop request. With the revised controller, use `--firmware wheelchair` for `A` / ← left and `D` / → right, plus its heartbeat and battery polling.
 
 ## 测试
 
@@ -244,9 +243,9 @@ PC（Python + pyserial，9600 波特）──串口指令──▶ ATmega328P �
 
 ### 原始电机测试固件 / Original motor-test firmware
 
-`ardino_demo.ino` 原样复制自 `eye_gesture_control` 的 `8124d30`。在主眼动和手眼入口指定 `--firmware motor-test` 使用这一 9600 波特的单字节协议。 [原始固件](firmware/eye_gesture_control/ardino_demo/ardino_demo.ino)
+`ardino_demo.ino` 原样复制自 `eye_gesture_control` 的 `8124d30`。指定真实串口时 Python 默认使用此协议，9600 波特，发送单字节。 [原始固件](firmware/eye_gesture_control/ardino_demo/ardino_demo.ino)
 
-The sketch is copied unchanged from `eye_gesture_control` at `8124d30`. In the gaze and hand-eye demos, use `--firmware motor-test` for this 9600-baud single-byte protocol.
+The sketch is copied unchanged from `eye_gesture_control` at `8124d30`. When a physical port is specified, Python defaults to this 9600-baud single-byte protocol.
 
 同一目录下的 [串口键盘测试工具](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) 支持相同的启动菜单。该目录的 `keyboard_serial.py` 配合上一级的 `ardino_demo.ino` 使用，`serial_wsad.ino` 是独立的 WSAD 测试固件。
 
@@ -263,9 +262,7 @@ The [keyboard serial test tools](firmware/eye_gesture_control/ardino_demo/serial
 
 The sketch reads the next serial command after the current pulse finishes. Python suppresses additional motion commands during a pulse and skips heartbeat and battery polling. The sketch compiled for Uno. Serial hardware and bench verification are pending.
 
-### 修订版轮椅固件协议（默认 `tuski`）
-
-默认数字协议来自 Tuski 提供的 `wheelchair_serial.py`，以 9600 波特发送 `0` 到 `4` 和行尾换行符。`--firmware wheelchair` 使用字母指令。
+### 修订版轮椅固件协议（`--firmware wheelchair`）
 
 | 指令 | 动作 |
 |---|---|
@@ -276,11 +273,11 @@ The sketch reads the next serial command after the current pulse finishes. Pytho
 | `3` / `4` | 左半速 / 右半速前进（弧线行驶） |
 | `GET_DATA` | 回报 `BATTERY:百分比,电压×10`（如 `BATTERY:87,218` = 87%、21.8V） |
 
-固件内置四层安全机制：**3 秒收不到控制指令发起停车**（Python 周期性重发当前指令当心跳）、
-转向涉及电机反转时**先减速停稳再执行**、低电（≤19.0V）**只接受停止作为运动控制指令**（回升到 19.5V 才解锁）、
+固件内置四层安全机制：**3 秒收不到指令自动急停**（因此 Python 端必须周期性重发当前指令当心跳）、
+换向/转向**先减速停稳再执行**、低电（≤19.0V）**只允许停止指令**（回升到 19.5V 才解锁）、
 **看门狗**（程序卡死 2 秒自动复位停机）。
 
-固件基于原项目归档版本。 [归档提交 `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
+两个固件文件按原项目归档版本恢复。 [归档提交 `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
 
 - 原始参考草图按字节保留。 [原始参考草图](Related_materials/ardino_demo/ardino_demo.ino)
 - 修订版控制器包含看门狗、串口 char 缓冲、转向先停、
@@ -290,11 +287,11 @@ The sketch reads the next serial command after the current pulse finishes. Pytho
 两个草图均通过 Arduino Uno 编译检查（Arduino AVR Boards 1.8.8、TimerOne 1.1.1）。台架验证仍待完成。
 
 Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
-（`WheelchairLink` 类：意图翻译成协议指令、当前指令每 1 秒心跳重发、每 2 秒 `GET_DATA`
+（`WheelchairLink` 类：意图翻译成协议字母、当前指令每 1 秒心跳重发、每 2 秒 `GET_DATA`
 轮询电池、低电双重保险强制停车；`port=None` 时为**模拟模式**，无硬件也能跑全套测试）。
 低电回报或固件低电告警会在下一条心跳之前将当前指令切为停止。解除低电锁后，原运动指令不会自动恢复。
-终端会打印每条成功写入的协议指令，包括每次心跳和电池查询，例如 `[串口 COM3] 已发送 1` 和 `[串口 COM3] 已发送 GET_DATA`。模拟使用 `[模拟] 指令 1` 一类的提示。
-`gaze_blink_confirm_demo.py` 默认使用屏幕模拟。与修订版固件联调时使用 `--serial-port COM3 --firmware tuski`。
+终端会打印每条成功写入的协议指令，包括每次心跳和电池查询，例如 `[串口 COM3] 已发送 F` 和 `[串口 COM3] 已发送 GET_DATA`。屏幕模拟使用 `[模拟] 指令 F` 一类的提示。
+`gaze_blink_confirm_demo.py` 默认使用屏幕模拟。与该修订版固件联调时使用 `--serial-port COM3 --firmware wheelchair`。
 
 > ⚠️ 烧录前需在 Arduino IDE 安装 **TimerOne** 库；台架清单全部通过**且加装物理急停按钮**（直接切断
 > 电机电源）之后，才允许载人测试。
@@ -350,7 +347,7 @@ Python 端的串口输出层也已落地：`src/hardware/serial_link.py`
 3. **台架验证修订版轮椅固件**：按文件底部 7 条清单逐项过
    （接线核对 → PWM 噪音/温度 → 看门狗 → 长跑 → 转向先停 → 低电模拟 → 电压对表），
    全过后加装物理急停按钮。
-4. **实机联调修订版轮椅固件**：使用 `--serial-port` 和 `--firmware tuski`，验证数字指令、心跳、`GET_DATA` 电池回报和低电停车。
+4. **实机联调修订版轮椅固件**：使用 `--serial-port` 和 `--firmware wheelchair`，验证心跳保活、`GET_DATA` 电池回报和低电强制停车。
 
 
 ## English Version
@@ -463,7 +460,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 ```
 
 The hand and eye preview runs both models on the same frame. It displays eye and iris landmarks, skeletons for up to two hands, gaze direction and blink count. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
-After gaze selection and blink confirmation, the terminal prints the command. Simulation and serial output default to `tuski` for the revised `wheelchair_controller.ino`. Use `--firmware motor-test` for the original single-motor test sketch or `--firmware wheelchair` for the revised controller's letter commands. Hand detection is for display.
+After gaze selection and blink confirmation, the terminal prints the command. Serial connections default to the original `motor-test` protocol, with forward and stop available from eye control. For the revised wheelchair controller, add `--firmware wheelchair` to use its turns, heartbeat and battery query. Hand detection is for display.
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
@@ -515,11 +512,9 @@ PC (Python + pyserial, 9600 baud) ──commands──▶ ATmega328P ──INA/I
 Battery ──▶ 0–25 V voltage sensor (1:5 divider) ──▶ A0
 ```
 
-See [Original motor-test firmware](#原始电机测试固件--original-motor-test-firmware) for the optional single-byte test protocol.
+See [Original motor-test firmware](#原始电机测试固件--original-motor-test-firmware) for the default hardware protocol and its single-byte commands.
 
-### Revised wheelchair controller protocol (default `tuski`)
-
-The default numeric protocol comes from Tuski's `wheelchair_serial.py`. It sends `0` through `4` followed by a newline at 9600 baud. Select `--firmware wheelchair` for the letter commands.
+### Revised wheelchair controller protocol (`--firmware wheelchair`)
 
 | Command | Action |
 |---|---|
@@ -530,9 +525,9 @@ The default numeric protocol comes from Tuski's `wheelchair_serial.py`. It sends
 | `3` / `4` | Half-speed left / right (arc driving) |
 | `GET_DATA` | Replies `BATTERY:percent,voltage×10` (e.g. `BATTERY:87,218` = 87%, 21.8 V) |
 
-The firmware requests a stop after 3 s without a control command. The Python side resends the current command as a heartbeat. Motor reversals wait for the wheels to stop. At low battery (≤19.0 V), Stop is the only accepted motion command, and motion unlocks at 19.5 V. The watchdog resets the controller if the program hangs for 2 s.
+The firmware has four built-in safety layers: **auto-stop after 3 s without a command** (so the Python side must periodically re-send the current command as a heartbeat), turns and direction changes **ramp to a full stop before executing**, low battery (≤19.0 V) **only accepts stop commands** (unlocks at 19.5 V), and a **watchdog** (a hung program resets within 2 s and stops the motors).
 
-The firmware is based on the original project archive. [Archived commit `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
+Both firmware sketches were restored from the original project archive. [Archived commit `de96851`](https://github.com/aaf12329/history_code/tree/de968515288c61432969fd85e9cd9e2ee9ef869d/EyeWheelchairProject)
 
 - The original reference sketch is preserved byte-for-byte. [Reference sketch](Related_materials/ardino_demo/ardino_demo.ino)
 - The revised controller includes the watchdog, serial char buffer, stop-before-turn, PWM frequency fix (~18 kHz), battery averaging and hysteresis, and throttled low-battery warnings. The revision markers and seven-item bench checklist are in the sketch. [Revised controller](firmware/wheelchair_controller/wheelchair_controller.ino)
@@ -540,12 +535,12 @@ The firmware is based on the original project archive. [Archived commit `de96851
 Both sketches compiled for Arduino Uno with Arduino AVR Boards 1.8.8 and TimerOne 1.1.1. Bench verification is pending.
 
 The Python serial output layer is also in place: `src/hardware/serial_link.py`
-(the `WheelchairLink` class: intent → protocol commands, 1 s heartbeat re-send of the current
+(the `WheelchairLink` class: intent → protocol letters, 1 s heartbeat re-send of the current
 command, `GET_DATA` battery polling every 2 s, a second low-battery lock that forces stop;
 with `port=None` it runs in a **simulated mode**, so the full test suite needs no hardware).
 A low battery reading or firmware warning switches the current command to Stop before the next heartbeat. Clearing the low-battery lock leaves the Stop command in place.
-The terminal prints every successful write, including heartbeats and battery queries. For example, `[串口 COM3] 已发送 1` identifies a serial write, and `[模拟] 指令 1` identifies a simulated command.
-`gaze_blink_confirm_demo.py` defaults to on-screen simulation. For bench integration with the revised controller, use `--serial-port COM3 --firmware tuski`.
+The terminal prints every successful write, including heartbeats and battery queries. For example, `[串口 COM3] 已发送 F` identifies a serial write, and `[模拟] 指令 F` identifies a simulated command.
+`gaze_blink_confirm_demo.py` defaults to on-screen simulation. For bench integration with the revised controller, use `--serial-port COM3 --firmware wheelchair`.
 
 > ⚠️ Install the **TimerOne** library in the Arduino IDE before compiling. The bench checklist must fully pass **and a physical e-stop button** (cutting motor power directly) must be added before any human ride testing.
 
@@ -585,4 +580,4 @@ The terminal prints every successful write, including heartbeats and battery que
 2. **Extract the common parts**: opening the camera, building detectors and drawing Chinese text are copied in all five scripts, so one change means five edits.
    → **Done on the `chen` branch**: new `src/common/` shared layer (`paths.py` registry, `camera_utils.open_camera()`, `draw_utils.chinese_font/draw_text()`), plus `csv_logger.py`. The branch also includes YOLO migration and YOLO/MediaPipe comparison; validate it and reconcile main's firmware path changes before merging. These modules are not yet on `main`.
 3. **Bench-verify `firmware/wheelchair_controller/wheelchair_controller.ino`**: work through the 7-item checklist at the end of the file (wiring check → PWM noise/temperature → watchdog → long run → stop-before-turn → low-battery simulation → voltage cross-check); then add a physical e-stop button.
-4. **On-device integration of the revised controller**: use the correct `--serial-port` with `--firmware tuski`, and verify the numeric commands, heartbeat, `GET_DATA` battery replies, and low-battery stop.
+4. **On-device integration of the revised controller**: use the correct `--serial-port` with `--firmware wheelchair`, and verify the heartbeat, `GET_DATA` battery replies, and forced stop on low battery.

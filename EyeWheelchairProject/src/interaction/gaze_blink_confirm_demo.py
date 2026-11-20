@@ -2,7 +2,7 @@
 
 流程：看正中校准 3 秒 → 稳定注视 左转/前进/右转 → 自然眨眼确认。
 默认使用模拟。终端菜单或 --serial-port 显式选择串口后，确认方向由 WheelchairLink 编码。
-默认使用 Tuski 的数字协议，对接修订版轮椅固件。原始电机测试草图使用 --firmware motor-test。
+默认对接原始电机测试草图。使用 --firmware wheelchair 选择修订版协议及其心跳和电池回报。
 按 Q 退出；C 重新校准；I 反转左右方向。
 传入 --video 路径时按录像帧率播放，到片尾自动退出，全程使用屏幕模拟。
 
@@ -747,7 +747,7 @@ def cli() -> None:
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--video", type=Path, help="在屏幕模拟模式下播放录像，例如 MP4")
     source.add_argument("--serial-port", help="连接指定串口，例如 COM3")
-    parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，默认 tuski（修订版轮椅固件）")
+    parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，指定串口时默认 motor-test")
     args = parser.parse_args()
     serial_port = None if args.video is not None else select_serial_port(args.serial_port, firmware=args.firmware)
     main(args.video, serial_port=serial_port, firmware=args.firmware)
