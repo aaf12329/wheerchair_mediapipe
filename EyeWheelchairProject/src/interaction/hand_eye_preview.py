@@ -25,9 +25,11 @@ from camera.video_input import frame_delay_ms, open_video  # noqa: E402
 from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402
 from hardware.serial_mode import select_serial_port  # noqa: E402
 from interaction import blink_preview, gaze_direction_preview, keyboard_serial  # noqa: E402
-from interaction.gaze_blink_confirm_demo import GazeBlinkDetector  # noqa: E402
+from interaction.blink_state import BlinkDetector  # noqa: E402
+from interaction.gaze_blink_state import GazeBlinkDetector  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 from vision import landmarks_preview  # noqa: E402
+from vision.eye_geometry import average_ear  # noqa: E402
 
 WINDOW_NAME = "MediaPipe Hand and Eye Preview"
 PREVIEW_WIDTH, PREVIEW_HEIGHT = landmarks_preview.WIDTH, landmarks_preview.HEIGHT
@@ -40,7 +42,7 @@ PANEL_HEIGHT = 128
 def update_eyes(now: float, face_result, blink, gaze):
     """将同帧的人脸结果送入两套状态机，返回眼部绘制和面板所需的数据。"""
     face = face_result.face_landmarks[0] if face_result.face_landmarks else None
-    ear = blink_preview.average_ear(face) if face is not None else None
+    ear = average_ear(face) if face is not None else None
     return face, blink.update(now, ear), gaze.update(now, face)
 
 
@@ -95,7 +97,7 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
         link.open()
         playback_started = time.perf_counter()
         started = playback_started if fps is None else 0.0
-        blink = blink_preview.BlinkDetector(started)
+        blink = BlinkDetector(started)
         gaze = GazeBlinkDetector(started)
         control = WheelchairControl(link)
         frame_count = 0

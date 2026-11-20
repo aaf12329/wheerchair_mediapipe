@@ -1,58 +1,9 @@
-"""第 3 步：眨眼校准与计数，仅用于视觉交互验证。
+"""第 3 步：在摄像头画面上检查眨眼计数。
 
-启动后保持睁眼看向摄像头约 3 秒。完成校准后，每完成一次自然眨眼，
-屏幕上的眨眼次数会加一。此程序不会输出任何轮椅或 Arduino 指令。
-按 Q 退出，按 C 重新校准。
-
-文件分三段：
-  1) 眨眼判定（纯逻辑，只吃数字，不碰摄像头）—— 可以单独跑测试
-  2) 摄像头与画面（打开设备、建检测器、画中文字）
-  3) 主流程 main()：读帧 → 量开合值 → 交给判定 → 画 → 按键
-
-============================ 调用关系总览 ============================
-
-  __main__  →  main()                        ← 唯一入口；main 自己不返回任何东西
-  │
-  ├─ 启动阶段（每个都只执行一次）
-  │   ├─ open_camera()                  打开摄像头，返回 cap（后面每帧从它 read）
-  │   ├─ face_detector()                建识别器：加载 models/face_landmarker.task
-  │   │    └─ MediaPipe: FaceLandmarker.create_from_options()
-  │   ├─ BlinkDetector(program_started_at)   建眨眼状态机，校准从此刻开始计时
-  │   │    └─ self.reset(now)           把所有状态置位（按 C 重新校准时走的也是它）
-  │   └─ chinese_font(20)               预加载中文字体，缺字体时立刻报错
-  │
-  ├─ 每帧循环（下面的 ★ 每帧都执行；五步顺序 看→量→判→报→控）
-  │   ├─★ read_frame(cap, detector, program_started_at)
-  │   │    ├─ cap.read() / cv2.flip / cv2.cvtColor     取一帧并做预处理
-  │   │    ├─ detector.detect_for_video(图, 毫秒时间戳)  ← MediaPipe 推理
-  │   │    └─ 返回 (frame, now, landmarks 或 None)
-  │   ├─★ draw_eye_points(frame, landmarks)            画出 12 个眼球点（只为肉眼检查）
-  │   ├─★ average_ear(landmarks)                       把 478 个点换算成一个数 ear
-  │   │    ├─ eye_aspect_ratio(lm, LEFT_EYE)  → distance() 量 4 段距离
-  │   │    └─ eye_aspect_ratio(lm, RIGHT_EYE) → distance()
-  │   ├─★ blink.update(now, ear)                       核心判定（纯逻辑，可单测）
-  │   │    ├─ _update_calibration()   校准未完成时走这里；3 秒后写入 baseline
-  │   │    ├─ _update_counting()      校准完成后走这里；眨眼计数在这里 +1
-  │   │    └─ _status(ear) → BlinkStatus   把本帧结果打包返回
-  │   ├─★ show_status(frame, status)                   把 status 显示到窗口
-  │   │    └─ draw_chinese_status(frame, 四行文字) → chinese_font(29 / 20)
-  │   ├─★ window_is_alive()                            问窗口还活着没（点 ✕ 后为假）
-  │   └─★ pressed_key(now, key_available_at)           读按键：q 退出；c → blink.reset()
-  │
-  └─ finally（无论怎么退出都执行）
-      ├─ cap.release()                   交还摄像头
-      └─ cv2.destroyAllWindows()         关窗口
-
-数据在这些函数之间是怎么流动的：
-
-  摄像头画面 ──read_frame──▶ landmarks（478 个点）
-  landmarks ──average_ear──▶ ear（一个浮点数，眼睛张开的程度）
-  ear + 当前时间 ──blink.update──▶ BlinkStatus（计数值 / 状态文字 / 基线 / 提示语）
-  BlinkStatus ──show_status──▶ 屏幕左上角的四行中文
+启动：open_camera() → face_detector() → BlinkDetector()。
+每帧：read_frame() → average_ear() → BlinkDetector.update() → show_status() → pressed_key()。
+检测输入是人脸关键点，判定输入是双眼开合比（EAR）。Q 退出，C 重新校准。
 """
-from collections import deque
-from dataclasses import dataclass
-import math
 from pathlib import Path
 import sys
 import time
@@ -68,6 +19,8 @@ if not __package__:
 from camera.video_input import open_camera as open_video_camera  # noqa: E402
 from common.paths import FACE_MODEL  # noqa: E402
 from vision.mediapipe_video import create_face_landmarker, read_face_frame  # noqa: E402
+from interaction.blink_state import BlinkDetector, BlinkStatus  # noqa: E402
+from vision.eye_geometry import LEFT_EYE, RIGHT_EYE, average_ear, distance, eye_aspect_ratio  # noqa: E402
 
 
 #默认参数设定：
@@ -76,18 +29,8 @@ from vision.mediapipe_video import create_face_landmarker, read_face_frame  # no
 #校准时长用前三秒去收集信息构建你的眼睛正常是什么样的，睁眼时多大闭眼时多大
 CAMERA_INDEX = 0
 WIDTH, HEIGHT = 960, 540
-CALIBRATION_SECONDS = 3.0     # 校准时长：这段时间内请保持睁眼
-CALIBRATION_MIN_SAMPLES = 10  # 样本下限：帧率过低时样本太少，基线不可靠
-CLOSE_RATIO = 0.78          # 放宽：低于睁眼基线的 78% 即进入闭眼候选
-REOPEN_RATIO = 0.88         # 高于睁眼基线的 88% 即认为重新睁眼
-SMOOTHING_FRAMES = 3        # 轻度平滑：保留自然眨眼的快速变化
-MIN_CLOSED_SECONDS = 0.04   # 过滤极短噪声
-MAX_CLOSED_SECONDS = 0.80   # 允许较慢/较完整的自然眨眼
-MIN_OPEN_SECONDS = 0.10     # 再次计数前只需短暂稳定睁眼
-REFRACTORY_SECONDS = 0.30   # 防止一次眨眼多计，但不妨碍连续眨眼
 KEY_DEBOUNCE_SECONDS = 0.25 # 两次按键响应的最小间隔：按住不放时不再连发
 
-MESSAGE_INITIAL = "请睁眼正视摄像头，正在校准"
 MESSAGE_RECALIBRATE = "重新校准：请睁眼正视摄像头"
 
 WELCOME_ART = (
@@ -107,231 +50,8 @@ FONT_CANDIDATES = (
     Path(r"C:\Windows\Fonts\arial.ttf"),
 )
 
-# 每只眼睛：外眼角、上外、上内、内眼角、下内、下外。
-LEFT_EYE = [33, 160, 158, 133, 153, 144]
-RIGHT_EYE = [362, 385, 387, 263, 373, 380]
-#MediaPipe不会管你具体要什么，他只会输出摄像头信息里面的478个点
-#然后这几个点就是每个眼睛的外眼角、上外、上内、内眼角、下内、下外位置
 
-
-# ============================ 1) 眨眼判定（纯逻辑） ============================
-
-
-def distance(a, b) -> float:
-    """两个关键点之间的平面距离（忽略 z）。只被下面的 eye_aspect_ratio() 调用。"""
-    return math.hypot(a.x - b.x, a.y - b.y)
-
-
-def eye_aspect_ratio(landmarks, indices) -> float:
-    """单只眼睛的开合比：上下眼睑平均距离 ÷ 眼角宽度。闭眼时趋近 0。
-
-    调用关系：被 average_ear() 调用（左眼、右眼各一次）；
-    内部调用 distance() 量 4 段距离（两段上下眼睑、一段眼角宽度）。
-    """
-    p0, p1, p2, p3, p4, p5 = [landmarks[i] for i in indices]
-    horizontal = distance(p0, p3)
-    if horizontal < 1e-6:
-        return 0.0
-    return (distance(p1, p5) + distance(p2, p4)) / (2.0 * horizontal)
-
-
-def average_ear(landmarks) -> float:
-    """双眼平均开合比：取平均可以抵消轻微侧头带来的差异。
-
-    调用关系：被 main() 每帧调用一次；内部调用 eye_aspect_ratio() 两次。
-    产出的这个数（ear）就是后面所有判定唯一的输入。
-    """
-    left = eye_aspect_ratio(landmarks, LEFT_EYE)
-    right = eye_aspect_ratio(landmarks, RIGHT_EYE)
-    return (left + right) / 2.0
-
-
-@dataclass(frozen=True)
-class BlinkStatus:
-    """一帧的判定结果快照，供界面显示。
-
-    调用关系：由 BlinkDetector._status() 产出 → 被 main() 接住 → 交给 show_status() 画出来。
-    它只是"数据袋子"，自身不含任何逻辑。
-    """
-
-    blink_count: int
-    state: str
-    message: str
-    ear: float | None
-    baseline: float | None
-    close_threshold: float | None
-    is_calibrating: bool
-
-
-class BlinkDetector:
-    """眨眼校准 + 计数状态机。原来散在 main() 里的状态，现在全在这个对象里。
-
-    调用关系：main() 在启动时 new 一个；之后每帧调 update()；
-    按 C 时调 reset() 重新校准。update() 内部按阶段分派：
-      baseline 还是 None  → _update_calibration()
-      baseline 已有值      → _update_counting()
-      两种情况都由 _status(ear) 打包成 BlinkStatus 返回。
-
-    用法：`BlinkDetector(time.perf_counter())`，之后每帧调用
-    `update(now, 原始开合值)`；没检测到人脸时传 None。平滑、校准、阈值比较
-    都在内部完成，外面只读返回的 BlinkStatus。
-    """
-
-    def __init__(
-        self,
-        now: float,
-        *,
-        calibration_seconds: float = CALIBRATION_SECONDS,
-        calibration_min_samples: int = CALIBRATION_MIN_SAMPLES,
-        close_ratio: float = CLOSE_RATIO,
-        reopen_ratio: float = REOPEN_RATIO,
-        smoothing_frames: int = SMOOTHING_FRAMES,
-        min_closed_seconds: float = MIN_CLOSED_SECONDS,
-        max_closed_seconds: float = MAX_CLOSED_SECONDS,
-        min_open_seconds: float = MIN_OPEN_SECONDS,
-        refractory_seconds: float = REFRACTORY_SECONDS,
-    ) -> None:
-        self._calibration_seconds = calibration_seconds
-        self._calibration_min_samples = calibration_min_samples
-        self._close_ratio = close_ratio
-        self._reopen_ratio = reopen_ratio
-        self._min_closed_seconds = min_closed_seconds
-        self._max_closed_seconds = max_closed_seconds
-        self._min_open_seconds = min_open_seconds
-        self._refractory_seconds = refractory_seconds
-        self._history: deque[float] = deque(maxlen=smoothing_frames)  # 最近几帧原始开合值，用于平滑
-        self.reset(now)
-
-    def reset(self, now: float, message: str = MESSAGE_INITIAL) -> None:
-        """这里在进行初始化（还没有开始收集用户是否睁眼）。
-
-        调用关系：被 __init__（建对象时）和 main() 的 C 键分支调用，
-        两条路走的是同一份代码，避免两处手抄不一致。
-        """
-        self._calibration_started_at = now  # 校准阶段的起始时间
-        self._calibration_values: list[float] = []  # 校准期间每帧的开合值
-        self._baseline: float | None = None  # 睁眼基线，校准完成前是 None
-        self._close_threshold: float | None = None  # 闭眼判定线
-        self._reopen_threshold: float | None = None  # 重新睁眼判定线
-        self._blink_count = 0  # 眨眼计数
-        self._is_closed = False  # 是否处于“闭眼候选”状态
-        self._closed_since: float | None = None  # 闭眼开始的时间戳
-        self._open_since: float | None = None  # 稳定睁眼开始的时间戳
-        self._last_blink_at = float("-inf")  # 上次计数时间；负无穷让第一次眨眼不受不应期限制
-        self._history.clear()
-        self._state = "正在校准"
-        self._message = message
-
-    def update(self, now: float, ear_raw: float | None) -> BlinkStatus:
-        """吃一帧数据，返回本帧状态。ear_raw 为 None 表示这帧没检测到人脸。
-
-        调用关系：被 main() 每帧调用一次；内部先做 3 帧平滑，再按阶段分派——
-        校准没完成 → _update_calibration()；已完成 → _update_counting()；
-        两个分支的最后都经 _status() 打包成 BlinkStatus 返回。
-        """
-        if ear_raw is None:
-            # 人脸消失期间的时序不可信，未完成的状态全部清空，人脸回来重新开始。
-            self._history.clear()
-            self._is_closed = False
-            self._closed_since = None
-            self._open_since = None
-            self._state = "未检测到人脸"
-            self._message = "未检测到人脸：请正对摄像头"
-            return self._status(ear=None)
-
-        self._history.append(ear_raw)
-        ear = sum(self._history) / len(self._history)
-
-        if self._baseline is None:
-            self._update_calibration(now, ear)
-        else:
-            self._update_counting(now, ear)
-        return self._status(ear=ear)
-
-    def _update_calibration(self, now: float, ear: float) -> None:
-        """校准阶段：攒够时间和样本后，算出睁眼基线与两条判定线。
-
-        调用关系：只被 update() 调用，且只在 baseline 还是 None 时进入。
-        写完之后 baseline 有了值，下一帧起 update() 就会改走 _update_counting()。
-        """
-        self._calibration_values.append(ear)
-        elapsed = now - self._calibration_started_at
-        remaining = max(0.0, self._calibration_seconds - elapsed)
-        self._message = f"校准中：请保持睁眼 {remaining:.1f}s"
-        if elapsed < self._calibration_seconds or len(self._calibration_values) < self._calibration_min_samples:
-            return
-
-        # 用中间 80% 的平均值，降低偶发眨眼影响。
-        values = sorted(self._calibration_values)
-        trim = max(1, len(values) // 10)
-        kept = values[trim:-trim] or values
-        self._baseline = sum(kept) / len(kept)
-        self._close_threshold = self._baseline * self._close_ratio
-        self._reopen_threshold = self._baseline * self._reopen_ratio
-        self._message = "校准完成：现在请自然眨眼"
-        self._state = "已准备好"
-
-    def _update_counting(self, now: float, ear: float) -> None:
-        """收集数据完成后的计数状态机。
-
-        调用关系：只被 update() 调用，且只在 baseline 已有值时进入。
-        眨眼计数 +1 就发生在这里（下面那段 min ≤ duration ≤ max 的判断里）。
-        """
-        # 必须先记录“闭眼前是否已稳定睁眼”，再处理当前闭眼帧。
-        # 否则一闭眼就会先清空 open_since，导致永远无法进入计数。
-        was_stably_open = (
-            self._open_since is not None
-            and now - self._open_since >= self._min_open_seconds
-            and now - self._last_blink_at >= self._refractory_seconds
-        )
-
-        if self._is_closed:
-            if ear >= self._reopen_threshold:
-                duration = now - self._closed_since if self._closed_since is not None else 0.0
-                self._is_closed = False
-                self._closed_since = None
-                self._open_since = now
-                if self._min_closed_seconds <= duration <= self._max_closed_seconds:
-                    self._blink_count += 1
-                    self._last_blink_at = now
-                    self._message = f"检测到一次眨眼（闭眼 {duration:.2f}s）"
-                    self._state = "已确认"
-                else:
-                    self._message = f"忽略非自然眨眼（{duration:.2f}s）"
-                    self._state = "已准备好"
-            else:
-                self._state = "闭眼候选中"
-        elif ear >= self._reopen_threshold:
-            if self._open_since is None:
-                self._open_since = now
-            self._state = "已准备好" if was_stably_open else "等待稳定睁眼"
-        elif ear < self._close_threshold and was_stably_open:
-            self._is_closed = True
-            self._closed_since = now
-            self._open_since = None
-            self._state = "闭眼候选中"
-        else:
-            # 落在两条判定线之间的灰色地带：保持现状，睁眼计时作废。
-            self._open_since = None
-            self._state = "等待稳定睁眼"
-
-    def _status(self, ear: float | None) -> BlinkStatus:
-        """把当前内部状态打包成 BlinkStatus（界面唯一能读到的东西）。
-
-        调用关系：被 update() 调用；产物交给 main() → show_status() 显示。
-        """
-        return BlinkStatus(
-            blink_count=self._blink_count,
-            state=self._state,
-            message=self._message,
-            ear=ear,
-            baseline=self._baseline,
-            close_threshold=self._close_threshold,
-            is_calibrating=self._baseline is None,
-        )
-
-
-# ============================ 2) 摄像头与画面 ============================
+# ============================ 摄像头与画面 ============================
 
 
 def open_camera() -> cv2.VideoCapture:
@@ -387,7 +107,7 @@ def draw_chinese_status(frame, lines) -> object:
     return cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
 
-# ============================ 3) 主流程 ============================
+# ============================ 主流程 ============================
 
 
 def read_frame(cap, detector, program_started_at: float):

@@ -8,14 +8,14 @@ import numpy as np
 import pytest
 
 import gaze_blink_confirm_demo as demo
-import gaze_direction_preview as preview
+from interaction import gaze_blink_state, gaze_direction_state
 
 
 @pytest.fixture
 def feed(monkeypatch):
-    monkeypatch.setattr(demo, "gaze_score", lambda frame: frame[0])
-    monkeypatch.setattr(demo, "average_ear", lambda frame: frame[1])
-    detector = demo.GazeBlinkDetector(0.0)
+    monkeypatch.setattr(gaze_blink_state, "gaze_score", lambda frame: frame[0])
+    monkeypatch.setattr(gaze_blink_state, "average_ear", lambda frame: frame[1])
+    detector = gaze_blink_state.GazeBlinkDetector(0.0)
     frame_number = 0
 
     def feed_frames(frame, count):
@@ -58,8 +58,8 @@ def test_face_loss_discards_old_dwell_and_unfinished_blink(feed):
 
 
 def test_gaze_preview_can_select_center_without_first_looking_sideways(monkeypatch):
-    monkeypatch.setattr(preview, "gaze_score", lambda frame: frame)
-    detector = preview.GazeDirectionDetector(0.0)
+    monkeypatch.setattr(gaze_direction_state, "gaze_score", lambda frame: frame)
+    detector = gaze_direction_state.GazeDirectionDetector(0.0)
     for index in range(130):
         status = detector.update(index / 30, 0.5)
     assert (status.raw_direction, status.candidate) == ("中", "中")

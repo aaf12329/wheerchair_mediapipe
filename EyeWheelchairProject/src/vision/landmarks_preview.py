@@ -62,6 +62,7 @@ if not __package__:
 
 from camera.video_input import open_camera as open_video_camera  # noqa: E402
 from common.paths import FACE_MODEL, HAND_MODEL, LANDMARK_SNAPSHOTS_DIR as SNAPSHOT_DIR  # noqa: E402
+from vision.eye_geometry import LEFT_EYE, RIGHT_EYE  # noqa: E402
 from vision.mediapipe_video import create_face_landmarker, create_hand_landmarker, read_detection_input  # noqa: E402
 
 # ---- 运行参数 ----
@@ -73,10 +74,7 @@ WINDOW_NAME = "MediaPipe Landmarks | Q quit | S snapshot"
 
 # MediaPipe Face Landmarker 的眼睛轮廓关键点索引。
 # 和第 3 步算 EAR（blink_preview.py）、第 4/5 步取虹膜与眼角用的是同一批点。
-EYE_LOOPS = (
-    [33, 160, 158, 133, 153, 144],    # 左眼：外眼角、上外、上内、内眼角、下内、下外
-    [362, 385, 387, 263, 373, 380],   # 右眼
-)
+EYE_LOOPS = (LEFT_EYE, RIGHT_EYE)
 
 
 # ============================ 1) 关键点绘制（不碰摄像头） ============================
