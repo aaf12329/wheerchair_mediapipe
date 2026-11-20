@@ -28,7 +28,6 @@ def test_demo_plays_mp4_to_end_without_camera_or_serial(tmp_path, monkeypatch, c
         return link_type(port, firmware=firmware)
 
     displayed = []
-    monkeypatch.setattr(demo, "ENABLE_HARDWARE", True)
     monkeypatch.setattr(demo, "open_camera", unexpected_camera)
     monkeypatch.setattr(demo, "WheelchairLink", simulated_link)
     monkeypatch.setattr(demo, "window_is_alive", lambda: True)

@@ -1,13 +1,58 @@
 """验证 Windows 键码解析、主程序分派和假串口的停车行为。"""
 
+from pathlib import Path
 import runpy
 import sys
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, call
+
+import pytest
+import serial
 
 import hand_eye_preview
 from interaction import keyboard_serial
 from test_serial_link import FakeSerial, make_link, movement_letters
+
+
+@pytest.mark.parametrize(("options", "answers", "open_error"), [
+    ([], [""], False),
+    ([], ["2", "COM9"], False),
+    ([], ["2", "COM9"], True),
+    (["--port", "COM9"], [], False),
+])
+def test_standalone_keyboard_uses_selected_output_mode(monkeypatch, capsys, options, answers, open_error):
+    project = Path(__file__).resolve().parents[1]
+    path = project / "firmware/eye_gesture_control/ardino_demo/serial_wsad/keyboard_serial.py"
+    main = runpy.run_path(str(path))["main"]
+    keys = Mock(side_effect=[{"F"}, {"F"}, set(), {"ESC"}])
+    monkeypatch.setitem(main.__globals__, "make_key_reader", lambda: keys)
+    monkeypatch.setitem(main.__globals__, "time", SimpleNamespace(sleep=Mock(), monotonic=lambda: 0.0))
+    monkeypatch.setattr(sys, "argv", [str(path), *options])
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr("builtins.input", Mock(side_effect=answers))
+    port = MagicMock(in_waiting=0)
+    port.__enter__.return_value = port
+    port.write.side_effect = len
+    open_port = Mock(return_value=port, side_effect=serial.SerialException("test error") if open_error else None)
+    monkeypatch.setattr(serial, "Serial", open_port)
+
+    assert main() == 0
+
+    output = capsys.readouterr().out
+    if options or answers[0] == "2":
+        open_port.assert_called_once_with("COM9", 9600, timeout=0, write_timeout=0.5)
+    else:
+        open_port.assert_not_called()
+    if open_port.called and not open_error:
+        assert port.write.call_args_list == [call(b"S"), call(b"F"), call(b"S"), call(b"S")]
+        port.flush.assert_called_once()
+        port.__exit__.assert_called_once()
+        assert "[TX] F" in output
+    else:
+        port.write.assert_not_called()
+        assert "[模拟] 指令 F" in output
+        if open_error:
+            assert "test error" in output
 
 
 def test_read_key_decodes_extended_arrows_and_letters():

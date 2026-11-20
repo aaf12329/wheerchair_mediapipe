@@ -1,8 +1,7 @@
-"""第 5 步：视线选方向 + 眨眼确认（纯屏幕演示）。
+"""第 5 步：视线选方向 + 眨眼确认。
 
 流程：看正中校准 3 秒 → 稳定注视 左转/前进/右转 → 自然眨眼确认。
-默认（ENABLE_HARDWARE = False）是纯屏幕模拟：确认结果只显示，不发任何指令。
-指定 --serial-port 后，已确认的方向经 WheelchairLink 按所选固件编码。
+默认使用模拟。终端菜单或 --serial-port 显式选择串口后，确认方向由 WheelchairLink 编码。
 默认对接原始电机测试草图。使用 --firmware wheelchair 选择修订版协议及其心跳和电池回报。
 按 Q 退出；C 重新校准；I 反转左右方向。
 传入 --video 路径时按录像帧率播放，到片尾自动退出，全程使用屏幕模拟。
@@ -14,7 +13,7 @@
 
 ============================ 调用关系总览 ============================
 
-  __main__  →  main()
+  __main__  →  cli()  →  选择模拟或串口  →  main()
   │
   ├─ 启动阶段（每个只执行一次）
   │   ├─ open_camera() / camera.video_input.open_video() 打开摄像头或录像
@@ -80,6 +79,7 @@ from PIL import Image, ImageDraw, ImageFont
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
 from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402  ← 在 sys.path 之后导入
+from hardware.serial_mode import select_serial_port  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 
 # ---- 运行参数 ----
@@ -95,10 +95,6 @@ MIN_OPEN_SECONDS, REFRACTORY_SECONDS = 0.10, 0.30    # 需要稳定睁眼多久 
 GAZE_SMOOTHING_FRAMES = 5                            # 虹膜位置平滑：最近几帧取平均
 EAR_SMOOTHING_FRAMES = 3                             # 眼睛开合值平滑：最近几帧取平均
 KEY_DEBOUNCE_SECONDS = 0.25                          # 两次按键响应的最小间隔：按住不放时不再连发
-
-# ---- 硬件链路（协议与安全机制见 src/hardware/serial_link.py 和 README）----
-ENABLE_HARDWARE = False      # ⚠️ False=纯屏幕模拟（默认）；True 时确认结果会真的发往串口
-SERIAL_PORT = "COM3"         # Arduino 的串口号（设备管理器里查）；打不开自动退回模拟模式
 
 # ---- 路径与窗口 ----
 ROOT = Path(__file__).resolve().parents[2]
@@ -675,8 +671,6 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
     print(cat)
     if video is not None and serial_port is not None:
         raise ValueError("录像模式使用模拟，不能同时指定串口。")
-    if serial_port is None and ENABLE_HARDWARE and video is None:
-        serial_port = SERIAL_PORT
     link = WheelchairLink(serial_port, firmware=firmware)
     cap, video_fps = (open_camera(), None) if video is None else open_video(video)
     try:
@@ -692,7 +686,7 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
             print(f"硬件链路已连接：{link.mode}。确认成功的方向会真的发往固件（低电时被强制为停止）。")
         else:
             reason = f"（{link.last_error}）" if link.last_error else ""
-            print(f"模拟模式{reason}：确认结果只显示在屏幕上，不会发出任何指令。")
+            print(f"模拟模式{reason}，终端会显示模拟指令。")
 
         playback_started = time.perf_counter()
         started = playback_started if video_fps is None else 0.0
@@ -747,11 +741,17 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
         cv2.destroyAllWindows()
 
 
-if __name__ == "__main__":
+def cli() -> None:
+    """解析录像和串口选项，按选定输出模式启动演示。"""
     parser = ArgumentParser(description="MediaPipe 视线选择与眨眼确认演示")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--video", type=Path, help="在屏幕模拟模式下播放录像，例如 MP4")
     source.add_argument("--serial-port", help="连接指定串口，例如 COM3")
     parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，指定串口时默认 motor-test")
     args = parser.parse_args()
-    main(args.video, serial_port=args.serial_port, firmware=args.firmware)
+    serial_port = None if args.video is not None else select_serial_port(args.serial_port, firmware=args.firmware)
+    main(args.video, serial_port=serial_port, firmware=args.firmware)
+
+
+if __name__ == "__main__":
+    cli()

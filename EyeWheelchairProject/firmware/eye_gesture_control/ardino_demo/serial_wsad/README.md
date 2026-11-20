@@ -5,9 +5,9 @@ keyboard_serial.py 当前匹配上一级的 ardino_demo.ino，波特率 9600。
 
 ## 使用
 
-1. 开发板烧录上一级的 ardino_demo.ino，随后关闭 Arduino 串口监视器。
-2. 双击 start_keyboard.bat，选择开发板串口（最近烧录使用 COM5，以实际连接为准）。
-3. 实时检测以下按键，无需按回车；支持大小写。
+1. 双击 `start_keyboard.bat`。按回车或输入 `1` 进入模拟，终端显示 `[模拟]` 指令。
+2. 需要实际发送时，开发板烧录上一级的 `ardino_demo.ino`，关闭 Arduino 串口监视器。启动时选 `2`，再输入主控板串口，例如 `COM5`。
+3. 进入所选模式后实时检测以下按键，无需按回车。
 
 | 按键 | 发送的单字节 ASCII | 动作 |
 | --- | --- | --- |
@@ -15,7 +15,7 @@ keyboard_serial.py 当前匹配上一级的 ardino_demo.ino，波特率 9600。
 | 2 | 2 | M2 前进 1 秒 |
 | 3 | 3 | M1 后退 1 秒 |
 | 4 | 4 | M2 后退 1 秒 |
-| F | F | 两路前进 1 秒 |
+| F | F | 两路前进 2 秒 |
 | S、X、空格、松开全部动作键 | S | 请求停止 |
 | Esc / Ctrl+C | S，然后退出 | 请求停止并退出 |
 
@@ -24,8 +24,7 @@ keyboard_serial.py 当前匹配上一级的 ardino_demo.ino，波特率 9600。
 例如按住 1 会持续显示 [KEY] 1 -> 1  M1前进，松开显示 [KEY] 无按键 -> S  停止。
 [TX] 表示已写入电脑串口，[KEY] 表示当前按键对应的指令，均不代表电机实际状态。
 
-原 Arduino 程序每次动作有 delay(1000)，期间无法处理新指令，包括停止指令。
-所以松键虽立即发送 S，开发板仍要等当前这 1 秒动作结束后处理。
+原 Arduino 程序在动作期间阻塞读取串口。松键发出的 `S` 要等当前动作结束后才会处理。
 原程序没有两路同时后退或原地左右转指令，因此测试键同步改为 1/2/3/4/F/S。
 
 键盘使用 Windows 全局检测，切换窗口后仍会响应。暂停控制请按 Esc 退出。
@@ -36,13 +35,13 @@ keyboard_serial.py 当前匹配上一级的 ardino_demo.ino，波特率 9600。
 该环境已安装 pyserial。如以后缺失，可在 PowerShell 执行：
 
 ```powershell
-& 'D:\Anaconda_envs\mul_pro\python.exe' -m pip install -r 'C:\Users\Guards\Desktop\eye_gesture_control\hardware\arduino_demo\serial_wsad\requirements.txt'
+& 'D:\Anaconda_envs\mul_pro\python.exe' -m pip install -r .\requirements.txt
 ```
 
-指定串口运行：
+在本目录指定串口运行会跳过菜单：
 
 ```powershell
-& 'D:\Anaconda_envs\mul_pro\python.exe' -u 'C:\Users\Guards\Desktop\eye_gesture_control\hardware\arduino_demo\serial_wsad\keyboard_serial.py' --port COM5
+& 'D:\Anaconda_envs\mul_pro\python.exe' -u .\keyboard_serial.py --port COM5
 ```
 
 加 --list-ports 只列出串口，不连接或发送指令。

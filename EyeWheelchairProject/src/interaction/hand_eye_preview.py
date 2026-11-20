@@ -23,6 +23,7 @@ if SRC_DIR not in sys.path:
 
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
 from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402
+from hardware.serial_mode import select_serial_port  # noqa: E402
 from interaction import blink_preview, gaze_direction_preview, keyboard_serial  # noqa: E402
 from interaction.gaze_blink_confirm_demo import GazeBlinkDetector  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
@@ -149,25 +150,6 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
             cv2.destroyAllWindows()
 
 
-def prompt_serial_port(firmware: str | None) -> str | None:
-    """从交互式终端选择输出模式，返回实际串口名或 None（模拟）。"""
-    print("1. 模拟模式（默认）\n2. 实际发送到主控板")
-    try:
-        while True:
-            choice = input("选择模式 [1/2]（回车选 1）：").strip()
-            if choice in ("", "1"):
-                return None
-            if choice == "2":
-                break
-            print("请输入 1 或 2。")
-
-        sketch = "wheelchair_controller.ino" if firmware == "wheelchair" else "ardino_demo.ino"
-        print(f"请确认主控板烧录的是 {sketch}。")
-        return input("输入主板串口（如 COM5，留空进入模拟模式）：").strip() or None
-    except EOFError:
-        return None
-
-
 def cli() -> None:
     """解析命令行，必要时询问串口模式，然后启动键盘或视觉入口。"""
     parser = ArgumentParser(description="MediaPipe 手部与眼睛集成预览")
@@ -180,14 +162,7 @@ def cli() -> None:
     if args.video is not None and args.serial_port is not None:
         parser.error("录像模式使用模拟，不能同时指定串口。")
 
-    serial_port = args.serial_port
-    if args.video is None and serial_port is None and sys.stdin is not None and sys.stdin.isatty():
-        try:
-            serial_port = prompt_serial_port(args.firmware)
-        except KeyboardInterrupt:
-            print("\n已取消启动。")
-            return
-
+    serial_port = None if args.video is not None else select_serial_port(args.serial_port, firmware=args.firmware)
     if args.keyboard:
         keyboard_serial.main(serial_port, firmware=args.firmware)
     else:

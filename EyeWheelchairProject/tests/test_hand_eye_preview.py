@@ -8,12 +8,14 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+import gaze_blink_confirm_demo as gaze_demo
 import hand_eye_preview as demo
 from test_gaze_blink import eye_landmarks
 from test_offline_workflows import FrameSource, simulate_window
 from test_serial_link import FakeSerial, make_link, movement_letters
 
 
+@pytest.mark.parametrize("entry", [demo, gaze_demo])
 @pytest.mark.parametrize(("answers", "expected_port"), [
     ([""], None),
     (["1"], None),
@@ -21,32 +23,33 @@ from test_serial_link import FakeSerial, make_link, movement_letters
     (["invalid", "2", " COM9 "], "COM9"),
     ([EOFError()], None),
 ])
-def test_visual_cli_uses_selected_output_mode(monkeypatch, answers, expected_port):
+def test_visual_cli_uses_selected_output_mode(monkeypatch, entry, answers, expected_port):
     run = Mock()
-    monkeypatch.setattr(demo, "main", run)
-    monkeypatch.setattr(sys, "argv", [demo.__file__])
+    monkeypatch.setattr(entry, "main", run)
+    monkeypatch.setattr(sys, "argv", [entry.__file__])
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr("builtins.input", Mock(side_effect=answers))
 
-    demo.cli()
+    entry.cli()
 
     run.assert_called_once_with(None, serial_port=expected_port, firmware=None)
 
 
+@pytest.mark.parametrize("entry", [demo, gaze_demo])
 @pytest.mark.parametrize(("options", "interactive", "video", "port"), [
     ([], False, None, None),
     (["--video", "sample.mp4"], True, Path("sample.mp4"), None),
     (["--serial-port", "COM9"], True, None, "COM9"),
 ])
-def test_visual_cli_skips_menu_when_mode_is_already_known(monkeypatch, options, interactive, video, port):
+def test_visual_cli_skips_menu_when_mode_is_already_known(monkeypatch, entry, options, interactive, video, port):
     run = Mock()
     prompt = Mock()
-    monkeypatch.setattr(demo, "main", run)
-    monkeypatch.setattr(demo, "prompt_serial_port", prompt)
-    monkeypatch.setattr(sys, "argv", [demo.__file__, *options])
+    monkeypatch.setattr(entry, "main", run)
+    monkeypatch.setattr("builtins.input", prompt)
+    monkeypatch.setattr(sys, "argv", [entry.__file__, *options])
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: interactive))
 
-    demo.cli()
+    entry.cli()
 
     run.assert_called_once_with(video, serial_port=port, firmware=None)
     prompt.assert_not_called()
@@ -71,8 +74,10 @@ def test_mode_selection_can_be_cancelled_before_startup(monkeypatch):
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr("builtins.input", Mock(side_effect=["2", KeyboardInterrupt()]))
 
-    demo.cli()
+    with pytest.raises(SystemExit) as exit_info:
+        demo.cli()
 
+    assert exit_info.value.code == 0
     run.assert_not_called()
 
 

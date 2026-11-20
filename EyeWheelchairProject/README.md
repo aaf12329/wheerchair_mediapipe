@@ -56,8 +56,7 @@ Eye-controlled wheelchair prototype — gaze + blink interaction. Python side ru
 
 用普通 USB 摄像头识别"眼睛在看哪个方向"和"有没有眨眼"，先把**眼控交互**这条路走通。
 
-> ⚠️ **安全边界**：Python 端默认是**纯屏幕模拟**（`gaze_blink_confirm_demo.py` 顶部
-> `ENABLE_HARDWARE = False`），不向任何硬件发指令。Arduino 固件（`firmware/`）与串口输出层
+> ⚠️ **安全边界**：Python 端默认使用**模拟模式**。实际发送需要通过菜单或命令行明确指定主控板串口。Arduino 固件（`firmware/`）与串口输出层
 > （`src/hardware/`）已经写好，但**未台架验证、默认关闭**；台架清单全过且加装物理急停按钮之前，
 > 不进行任何载人测试。
 
@@ -162,14 +161,14 @@ venv\Scripts\python.exe -m pip install opencv-python mediapipe numpy pillow pyse
 venv\Scripts\python.exe src\interaction\blink_preview.py
 ```
 
-主演示可以用 `--video` 读取已录制的 MP4，在屏幕模拟模式下按录像标称帧率播放，播完自动退出。
+在终端启动主眼动演示或手眼预览时，按回车或选 `1` 进入模拟，选 `2` 后填写主控板串口进行实际发送。可以用 `--serial-port COM3` 跳过菜单直接连接，或用 `--video` 在模拟模式下播放录像。
 
 ```powershell
 python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
 手眼预览在同一帧运行人脸与手部模型，同时显示双眼与虹膜关键点、最多两只手的骨架、视线方向和眨眼次数。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。
-注视选方向并眨眼确认后，终端会打印指令。交互式启动时，按回车或输入 `1` 进入模拟，输入 `2` 后填写主控板串口进行实际发送。录像和非交互式启动默认模拟。也可用 `--serial-port COM3` 直接连接并跳过菜单。连接串口时默认使用 `motor-test`，眼控可发送前进与停止。使用本仓库修订版轮椅固件时可加 `--firmware wheelchair` 以使用对应的转向、心跳和电池查询。手部用于检测显示。
+注视选方向并眨眼确认后，终端会打印指令。连接串口时默认使用 `motor-test`，眼控可发送前进与停止。使用本仓库修订版轮椅固件时可加 `--firmware wheelchair` 以使用对应的转向、心跳和电池查询。手部用于检测显示。
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
@@ -248,9 +247,9 @@ PC（Python + pyserial，9600 波特）──串口指令──▶ ATmega328P �
 
 The sketch is copied unchanged from `eye_gesture_control` at `8124d30`. When a physical port is specified, Python defaults to this 9600-baud single-byte protocol.
 
-同一目录下保留了原项目的 [串口键盘测试工具](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md)。该目录的 `keyboard_serial.py` 配合上一级的 `ardino_demo.ino` 使用，`serial_wsad.ino` 是独立的 WSAD 测试固件。
+同一目录下的 [串口键盘测试工具](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) 支持相同的启动菜单。该目录的 `keyboard_serial.py` 配合上一级的 `ardino_demo.ino` 使用，`serial_wsad.ino` 是独立的 WSAD 测试固件。
 
-The [keyboard serial test tools](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) are copied from the same project. The directory's `keyboard_serial.py` pairs with the parent `ardino_demo.ino`, and `serial_wsad.ino` is a standalone WSAD test sketch.
+The [keyboard serial test tools](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) support the same startup menu. The directory's `keyboard_serial.py` pairs with the parent `ardino_demo.ino`, and `serial_wsad.ino` is a standalone WSAD test sketch.
 
 | 串口字节 / Byte | 固件行为 / Action |
 |---|---|
@@ -358,7 +357,7 @@ Eye-controlled wheelchair prototype — gaze + blink interaction. The Python sid
 
 Using an ordinary USB camera to recognize "which direction the eyes are looking" and "whether there is a blink," the goal is to first get the **eye-control interaction** path working.
 
-> ⚠️ **Safety boundary**: the Python side defaults to **pure screen simulation** (`ENABLE_HARDWARE = False` at the top of `gaze_blink_confirm_demo.py`) and sends no commands to any hardware. The Arduino firmware (`firmware/`) and the serial output layer (`src/hardware/`) are written but **not bench-verified and off by default**; no human ride testing before the bench checklist fully passes **and** a physical e-stop button is installed.
+> ⚠️ **Safety boundary**: the Python programs default to **simulation**. Sending commands requires explicitly selecting the controller's port from the menu or command line. Bench verification of the Arduino firmware (`firmware/`) and serial layer (`src/hardware/`) is pending. Human ride testing requires a completed bench checklist and a physical e-stop button.
 
 ---
 
@@ -454,14 +453,14 @@ In Git Bash, write `venv\Scripts\python.exe` as `venv/Scripts/python.exe`; the s
 venv\Scripts\python.exe src\interaction\blink_preview.py
 ```
 
-Use `--video` to play a recorded MP4 in the main demo. Playback uses on-screen simulation at the video's nominal frame rate and exits at the end.
+When starting the main gaze demo or hand and eye preview in a terminal, press Enter or choose `1` for simulation. Choose `2` and enter the controller's serial port to send commands. Use `--serial-port COM3` to connect directly or `--video` to play a recording in simulation.
 
 ```powershell
 python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
 The hand and eye preview runs both models on the same frame. It displays eye and iris landmarks, skeletons for up to two hands, gaze direction and blink count. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
-After gaze selection and blink confirmation, the terminal prints the command. When starting from an interactive terminal, press Enter or choose `1` for simulation. Choose `2` and enter the controller's serial port to send commands to it. Video playback and non-interactive launches default to simulation. Use `--serial-port COM3` to connect directly and skip the menu. Serial connections default to the original `motor-test` protocol, with forward and stop available from eye control. For the revised wheelchair controller, add `--firmware wheelchair` to use its turns, heartbeat and battery query. Hand detection is for display.
+After gaze selection and blink confirmation, the terminal prints the command. Serial connections default to the original `motor-test` protocol, with forward and stop available from eye control. For the revised wheelchair controller, add `--firmware wheelchair` to use its turns, heartbeat and battery query. Hand detection is for display.
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py

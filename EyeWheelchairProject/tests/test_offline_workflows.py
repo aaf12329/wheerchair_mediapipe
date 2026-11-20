@@ -227,12 +227,10 @@ def test_demo_converts_detected_blink_to_serial_bytes(monkeypatch):
     monkeypatch.setattr(demo, "make_detector", lambda: detector)
     monkeypatch.setattr(demo, "show_status", statuses)
     monkeypatch.setattr(demo, "chinese_font", Mock())
-    monkeypatch.setattr(demo, "ENABLE_HARDWARE", True)
-    monkeypatch.setattr(demo, "SERIAL_PORT", "test-port")
     monkeypatch.setattr(demo, "WheelchairLink", Mock(return_value=link))
     simulate_window(monkeypatch, [-1] * (len(landmarks) - 1) + [ord("Q")])
 
-    demo.main()
+    demo.main(serial_port="test-port", firmware="wheelchair")
 
     assert detect.call_count == len(landmarks)
     assert statuses.call_args_list[len(before_blink) - 1].args[1].state == "等待眨眼"
