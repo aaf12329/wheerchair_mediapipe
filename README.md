@@ -45,5 +45,6 @@ Run the demo or the offline tests from the repository root. The demo opens the c
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
+python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
 python -m pytest -q .\EyeWheelchairProject\tests
 ```

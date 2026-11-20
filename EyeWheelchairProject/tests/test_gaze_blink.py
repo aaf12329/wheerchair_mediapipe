@@ -101,7 +101,7 @@ def test_demo_records_only_the_confirmed_direction(monkeypatch, iris_position, d
     link = demo.WheelchairLink(None)
     set_intent = Mock(wraps=link.set_intent)
     monkeypatch.setattr(link, "set_intent", set_intent)
-    monkeypatch.setattr(demo, "WheelchairLink", lambda port: link)
+    monkeypatch.setattr(demo, "WheelchairLink", lambda port, **options: link)
     monkeypatch.setattr(demo, "open_video", lambda path: (capture, 30.0))
     monkeypatch.setattr(demo, "make_detector", Mock())
     monkeypatch.setattr(demo, "chinese_font", Mock())

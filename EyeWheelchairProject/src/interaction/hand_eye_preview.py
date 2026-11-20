@@ -21,7 +21,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
-from hardware.serial_link import WheelchairLink  # noqa: E402
+from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402
 from interaction import blink_preview, gaze_direction_preview, keyboard_serial  # noqa: E402
 from interaction.gaze_blink_confirm_demo import GazeBlinkDetector  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
@@ -82,11 +82,11 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status, link_sta
 # ============================ 3) 主流程 ============================
 
 
-def main(video: Path | None = None, *, serial_port: str | None = None) -> None:
+def main(video: Path | None = None, *, serial_port: str | None = None, firmware: str | None = None) -> None:
     """按同一输入帧驱动双模型、眼部判定、串口输出与窗口。"""
     if video is not None and serial_port is not None:
         raise ValueError("录像模式使用模拟，不能同时指定串口。")
-    link = WheelchairLink(serial_port)
+    link = WheelchairLink(serial_port, firmware=firmware)
     capture, fps = (landmarks_preview.open_camera(), None) if video is None else open_video(video)
     try:
         face_detector, hand_detector = landmarks_preview.create_detectors()
@@ -152,10 +152,11 @@ if __name__ == "__main__":
     source.add_argument("--video", type=Path, help="在模拟模式下播放录像")
     source.add_argument("--keyboard", action="store_true", help="在 Windows 终端使用键盘控制，不打开摄像头")
     parser.add_argument("--serial-port", help="连接指定串口，例如 COM3")
+    parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，指定串口时默认 motor-test")
     args = parser.parse_args()
     if args.video is not None and args.serial_port is not None:
         parser.error("录像模式使用模拟，不能同时指定串口。")
     if args.keyboard:
-        keyboard_serial.main(args.serial_port)
+        keyboard_serial.main(args.serial_port, firmware=args.firmware)
     else:
-        main(args.video, serial_port=args.serial_port)
+        main(args.video, serial_port=args.serial_port, firmware=args.firmware)

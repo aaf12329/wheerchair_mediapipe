@@ -26,6 +26,6 @@ class WheelchairControl:
 
         link_status = self._link.update(now)
         if face_present and self._previous_state == "等待眨眼" and state == "确认成功" and direction:
-            self._link.set_intent(direction, now=now)
+            self._link.set_intent(direction, now=now, retrigger=True)
         self._previous_state = state
         return link_status

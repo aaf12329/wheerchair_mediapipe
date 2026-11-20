@@ -21,16 +21,18 @@ def test_read_key_decodes_extended_arrows_and_letters():
 def test_keyboard_cli_routes_to_console_mode_with_serial_port(monkeypatch):
     run = Mock()
     monkeypatch.setattr(keyboard_serial, "main", run)
-    monkeypatch.setattr(sys, "argv", [hand_eye_preview.__file__, "--keyboard", "--serial-port", "COM9"])
+    monkeypatch.setattr(sys, "argv", [
+        hand_eye_preview.__file__, "--keyboard", "--serial-port", "COM9", "--firmware", "motor-test",
+    ])
 
     runpy.run_path(hand_eye_preview.__file__, run_name="__main__")
 
-    run.assert_called_once_with("COM9")
+    run.assert_called_once_with("COM9", firmware="motor-test")
 
 
 def test_keyboard_sends_commands_and_stops_when_input_expires_or_exits(monkeypatch, capsys):
     port = FakeSerial()
-    link = keyboard_serial.WheelchairLink("COM9", port_factory=lambda *args, **kwargs: port)
+    link = keyboard_serial.WheelchairLink("COM9", firmware="wheelchair", port_factory=lambda *args, **kwargs: port)
     transport = Mock(return_value=link)
     keys = ["up", "up", None, None, "right", "down", "left", "q"]
     times = Mock(side_effect=[0.0, 0.4, 0.8, 1.12, 1.14, 1.16, 1.18])
@@ -40,9 +42,9 @@ def test_keyboard_sends_commands_and_stops_when_input_expires_or_exits(monkeypat
     monkeypatch.setattr(keyboard_serial, "time", SimpleNamespace(perf_counter=times, sleep=Mock()))
     monkeypatch.setattr(keyboard_serial, "read_key", Mock(side_effect=keys))
 
-    keyboard_serial.main("COM9")
+    keyboard_serial.main("COM9", firmware="wheelchair")
 
-    transport.assert_called_once_with("COM9")
+    transport.assert_called_once_with("COM9", firmware="wheelchair")
     assert movement_letters(port) == ["S", "F", "S", "R", "S", "L", "S"]
     assert "[串口 COM9] 已发送 F" in capsys.readouterr().out
     assert port.closed
@@ -57,3 +59,16 @@ def test_keyboard_checks_low_battery_before_sending_direction(monkeypatch):
         assert movement_letters(port) == ["S"]
     finally:
         link.close()
+
+
+def test_motor_test_keyboard_uses_digit_keys_and_ignores_turns(monkeypatch):
+    link, port = make_link(firmware="motor-test")
+    keys = Mock(side_effect=["left", "1", "right", "s", "2", "q"])
+    times = Mock(side_effect=[0.0, 0.1, 0.3, 0.5, 1.2])
+    monkeypatch.setattr(keyboard_serial, "read_key", keys)
+    monkeypatch.setattr(keyboard_serial, "time", SimpleNamespace(perf_counter=times, sleep=Mock()))
+    try:
+        keyboard_serial.run_keyboard(Mock(), link)
+    finally:
+        link.close()
+    assert port.tx == [b"1", b"S", b"2", b"S"]

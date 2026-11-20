@@ -49,9 +49,9 @@ class FakeSerial:
         return b"".join(self.tx)
 
 
-def make_link(rx: bytes = b"") -> tuple[WheelchairLink, FakeSerial]:
+def make_link(rx: bytes = b"", *, firmware: str | None = "wheelchair") -> tuple[WheelchairLink, FakeSerial]:
     fake = FakeSerial()
-    link = WheelchairLink("COM9", port_factory=lambda port, **kw: fake)
+    link = WheelchairLink("COM9", firmware=firmware, port_factory=lambda port, **kw: fake)
     link.open()
     if rx:
         # open() 会清空输入缓冲（清掉上次残留是正确行为），所以测试数据要在 open 之后灌
@@ -245,3 +245,41 @@ def test_open_failure_falls_back_to_simulated():
     assert info.connected is False
     assert "COM99" in info.last_error
     assert info.mode == "模拟"
+
+
+@pytest.mark.parametrize("command", ["1", "2", "3", "4", "F"])
+def test_original_controller_protocol_sends_only_single_bytes(command):
+    link, port = make_link(firmware=None)
+    assert link.firmware == "motor-test"
+    link.set_intent(command, now=0.0)
+    link.update(5.0)
+    link.close()
+
+    assert port.tx == [command.encode("ascii"), b"S"]
+
+
+def test_motor_test_does_not_queue_motion_during_blocking_firmware_pulse(capsys):
+    link, port = make_link(firmware="motor-test")
+    link.set_intent("前进", now=0.0)
+    link.update(1.0)
+    link.set_intent("停", now=1.1)
+    link.set_intent("1", now=1.2)
+    link.set_intent("左转", now=2.1)
+    link.set_intent("3", now=2.2)
+    link.set_intent("4", now=2.9)
+    link.update(8.0)
+
+    assert port.tx == [b"F", b"S", b"3"]
+    assert "motor-test 固件不支持指令：左转" in capsys.readouterr().out
+    link.close()
+
+
+def test_motor_test_allows_fresh_confirmation_after_previous_pulse():
+    link, port = make_link(firmware="motor-test")
+    link.set_intent("前进", now=0.0, retrigger=True)
+    link.set_intent("前进", now=1.5, retrigger=True)
+    link.set_intent("前进", now=2.2)
+    link.set_intent("前进", now=2.3, retrigger=True)
+    link.close()
+
+    assert port.tx == [b"F", b"F", b"S"]

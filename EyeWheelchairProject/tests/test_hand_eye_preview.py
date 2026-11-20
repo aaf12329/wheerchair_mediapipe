@@ -37,7 +37,7 @@ def test_video_preview_draws_hands_and_eyes_together_and_independently(tmp_path,
 
     open_video.assert_called_once_with(video)
     open_camera.assert_not_called()
-    make_link_for_mode.assert_called_once_with(None)
+    make_link_for_mode.assert_called_once_with(None, firmware=None)
     create_detectors.assert_called_once()
     close.assert_called_once()
     assert source.released
@@ -83,7 +83,7 @@ def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypat
     face_detector = SimpleNamespace(detect_for_video=Mock(side_effect=landmarks))
     hand_detector = SimpleNamespace(detect_for_video=Mock(return_value=SimpleNamespace(hand_landmarks=[])))
     port = FakeSerial()
-    link = demo.WheelchairLink("COM9", port_factory=lambda *args, **kwargs: port)
+    link = demo.WheelchairLink("COM9", firmware="wheelchair", port_factory=lambda *args, **kwargs: port)
     open_transport = Mock(return_value=link)
     displayed = Mock(return_value=frame)
     monkeypatch.setattr(capture, "read", read_at_recorded_rate)
@@ -96,9 +96,9 @@ def test_live_preview_sends_confirmed_direction_and_processes_stop_key(monkeypat
     # S 和 Q 都应在上一次按键不到 0.25 秒时响应。
     simulate_window(monkeypatch, [-1] * (len(landmarks) - 3) + [ord("X"), ord("S"), ord("Q")])
 
-    demo.main(serial_port="COM9")
+    demo.main(serial_port="COM9", firmware="wheelchair")
 
-    open_transport.assert_called_once_with("COM9")
+    open_transport.assert_called_once_with("COM9", firmware="wheelchair")
     assert displayed.call_args_list[len(before_blink) - 1].args[4].state == "等待眨眼"
     confirmed = displayed.call_args_list[-2].args[4]
     assert (confirmed.state, confirmed.active) == ("确认成功", "前进")

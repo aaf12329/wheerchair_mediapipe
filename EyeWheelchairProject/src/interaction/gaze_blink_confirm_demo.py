@@ -2,8 +2,8 @@
 
 流程：看正中校准 3 秒 → 稳定注视 左转/前进/右转 → 自然眨眼确认。
 默认（ENABLE_HARDWARE = False）是纯屏幕模拟：确认结果只显示，不发任何指令。
-把顶部 ENABLE_HARDWARE 改为 True 并接好 Arduino 后，确认成功的方向才会经
-src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低电强制停车）。
+指定 --serial-port 后，已确认的方向经 WheelchairLink 按所选固件编码。
+默认对接原始电机测试草图。使用 --firmware wheelchair 选择修订版协议及其心跳和电池回报。
 按 Q 退出；C 重新校准；I 反转左右方向。
 传入 --video 路径时按录像帧率播放，到片尾自动退出，全程使用屏幕模拟。
 
@@ -40,7 +40,7 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
   │   │    │    └─ _update_direction()           睁眼时累计停留时间或取消旧候选
   │   │    └─ _status(...) → GazeBlinkStatus   把本帧结果打包返回
   │   ├─★ WheelchairControl.update()          停车判定 → 心跳和收包 → 已确认方向
-  │   │    └─ link.set_intent(方向)            翻译成 L/F/R 发给固件
+  │   │    └─ link.set_intent(方向)            按所选固件协议发送已确认指令
   │   ├─★ show_status(frame, status, now, fps, link_info)  渲染界面并推窗口
   │   │    └─ render_overlay(...)              面板/指示灯/进度条/卡片/角标（单次 PIL 转换）
   │   ├─★ window_is_alive()                    问窗口还活着没（点 ✕ 后为假）
@@ -79,7 +79,7 @@ from PIL import Image, ImageDraw, ImageFont
 # 脚本直接运行时，把 src/ 加进搜索路径以引入录像和串口接口
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
-from hardware.serial_link import WheelchairLink  # noqa: E402  ← 在 sys.path 之后导入
+from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402  ← 在 sys.path 之后导入
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 
 # ---- 运行参数 ----
@@ -670,10 +670,14 @@ def pressed_key(now: float, key_available_at: float, delay_ms: int = 1):
     return chr(raw_key & 0xFF).lower(), now + KEY_DEBOUNCE_SECONDS
 
 
-def main(video: Path | None = None) -> None:
+def main(video: Path | None = None, *, serial_port: str | None = None, firmware: str | None = None) -> None:
     """初始化输入、识别器和串口适配，每帧走一遍看、判、连、报、控。"""
     print(cat)
-    link = WheelchairLink(SERIAL_PORT if ENABLE_HARDWARE and video is None else None)
+    if video is not None and serial_port is not None:
+        raise ValueError("录像模式使用模拟，不能同时指定串口。")
+    if serial_port is None and ENABLE_HARDWARE and video is None:
+        serial_port = SERIAL_PORT
+    link = WheelchairLink(serial_port, firmware=firmware)
     cap, video_fps = (open_camera(), None) if video is None else open_video(video)
     try:
         detector = make_detector()
@@ -745,5 +749,9 @@ def main(video: Path | None = None) -> None:
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="MediaPipe 视线选择与眨眼确认演示")
-    parser.add_argument("--video", type=Path, help="在屏幕模拟模式下播放录像，例如 MP4")
-    main(parser.parse_args().video)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--video", type=Path, help="在屏幕模拟模式下播放录像，例如 MP4")
+    source.add_argument("--serial-port", help="连接指定串口，例如 COM3")
+    parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，指定串口时默认 motor-test")
+    args = parser.parse_args()
+    main(args.video, serial_port=args.serial_port, firmware=args.firmware)

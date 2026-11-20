@@ -219,7 +219,7 @@ def test_demo_converts_detected_blink_to_serial_bytes(monkeypatch):
     detect = Mock(side_effect=[SimpleNamespace(face_landmarks=[points]) for points in landmarks])
     detector = SimpleNamespace(detect_for_video=detect)
     port = FakeSerial()
-    link = demo.WheelchairLink("test-port", port_factory=lambda *args, **kwargs: port)
+    link = demo.WheelchairLink("test-port", firmware="wheelchair", port_factory=lambda *args, **kwargs: port)
     statuses = Mock()
     monkeypatch.setattr(source, "read", read_at_recorded_rate)
     monkeypatch.setattr(demo, "time", SimpleNamespace(perf_counter=lambda: frame_number / 30))
