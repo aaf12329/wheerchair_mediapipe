@@ -248,6 +248,10 @@ PC（Python + pyserial，9600 波特）──串口指令──▶ ATmega328P �
 
 The sketch is copied unchanged from `eye_gesture_control` at `8124d30`. When a physical port is specified, Python defaults to this 9600-baud single-byte protocol.
 
+同一目录下保留了原项目的 [串口键盘测试工具](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md)。该目录的 `keyboard_serial.py` 配合上一级的 `ardino_demo.ino` 使用，`serial_wsad.ino` 是独立的 WSAD 测试固件。
+
+The [keyboard serial test tools](firmware/eye_gesture_control/ardino_demo/serial_wsad/README.md) are copied from the same project. The directory's `keyboard_serial.py` pairs with the parent `ardino_demo.ino`, and `serial_wsad.ino` is a standalone WSAD test sketch.
+
 | 串口字节 / Byte | 固件行为 / Action |
 |---|---|
 | `1` / `2` | M1 / M2 单电机前进约 1 秒 / Run M1 or M2 forward for about one second |
