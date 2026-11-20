@@ -12,7 +12,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from hardware.serial_link import COMMAND_MAP, FIRMWARE_LOW_MSG, FIRMWARE_RECOVERED_MSG, WheelchairLink
+from hardware.serial_link import FIRMWARE_LOW_MSG, FIRMWARE_RECOVERED_MSG, WheelchairLink
 
 
 class FakeSerial:
@@ -79,7 +79,7 @@ def test_simulated_mode_counts_without_serial():
     info = link.update(0.0)
     assert info.mode == "模拟"
     assert info.connected is False
-    assert info.intent == "F"
+    assert info.intent == "1"
     assert info.send_count == 1
 
 
@@ -87,7 +87,6 @@ def test_simulated_mode_counts_without_serial():
 
 
 def test_intent_maps_to_protocol_letters():
-    assert COMMAND_MAP == {"左转": "L", "右转": "R", "前进": "F", "停": "S"}
     link, fake = make_link()
     link.set_intent("前进", now=0.0)
     assert sent_letters(fake) == ["F"]
@@ -144,7 +143,7 @@ def test_terminal_labels_simulated_intents(capsys):
     link.set_intent("右转", now=0.1)
     link.set_intent("停", now=0.2)
 
-    assert capsys.readouterr().out.splitlines() == ["[模拟] 指令 R", "[模拟] 指令 S"]
+    assert capsys.readouterr().out.splitlines() == ["[模拟] 指令 4", "[模拟] 指令 0"]
 
 
 @pytest.mark.parametrize("write_error", [OSError("disconnected"), None], ids=["exception", "partial"])
@@ -249,13 +248,39 @@ def test_open_failure_falls_back_to_simulated():
 
 @pytest.mark.parametrize("command", ["1", "2", "3", "4", "F"])
 def test_original_controller_protocol_sends_only_single_bytes(command):
-    link, port = make_link(firmware=None)
+    link, port = make_link(firmware="motor-test")
     assert link.firmware == "motor-test"
     link.set_intent(command, now=0.0)
     link.update(5.0)
     link.close()
 
     assert port.tx == [command.encode("ascii"), b"S"]
+
+
+@pytest.mark.parametrize(("intent", "payload"), [
+    ("停止", b"0\n"), ("前进", b"1\n"), ("后退", b"2\n"), ("左转", b"3\n"), ("右转", b"4\n"),
+])
+def test_default_tuski_protocol_sends_the_numeric_line(intent, payload, capsys):
+    link, port = make_link(firmware=None)
+    assert link.firmware == "tuski"
+    link.set_intent(intent, now=0.0)
+    link.close()
+
+    assert port.tx == ([payload] if payload == b"0\n" else [payload, b"0\n"])
+    assert f"[串口 COM9] 已发送 {payload[:1].decode()}" in capsys.readouterr().out
+
+
+def test_tuski_uses_numeric_stop_for_low_battery_and_heartbeat():
+    link, port = make_link(rx=b"BATTERY:10,188\n", firmware="tuski")
+    link.set_intent("F", now=0.0)
+    status = link.update(1.05)
+    assert status.is_low_battery and status.intent == "0"
+
+    link.set_intent("L", now=1.1)
+    link.update(2.15)
+    link.close()
+
+    assert port.tx == [b"1\n", b"0\n", b"GET_DATA\n", b"0\n"]
 
 
 def test_motor_test_does_not_queue_motion_during_blocking_firmware_pulse(capsys):

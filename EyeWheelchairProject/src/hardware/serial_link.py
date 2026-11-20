@@ -1,21 +1,24 @@
 """把上层的运动意图翻译成所选固件的串口协议。
 
 视觉与键盘入口 → WheelchairLink.open() → update() / set_intent() → _send()
-wheelchair 使用换行协议、心跳与电池轮询。motor-test 对接原始 Arduino 电机
-测试固件，使用单字节。port=None 时使用同样的协议映射做终端模拟。
+tuski 适配 Tuski 提供的 wheelchair_serial.py 中的 0–4 换行协议。
+tuski 和 wheelchair 均使用修订版固件的心跳与电池轮询，motor-test 使用单字节。
+port=None 时使用同样的指令编码做终端模拟。
 """
 from dataclasses import dataclass, field
 import time
 
 HEARTBEAT_INTERVAL = 1.0        # 当前指令重发间隔（秒）
 BATTERY_POLL_INTERVAL = 2.0     # GET_DATA 轮询间隔（秒）
+TUSKI_FIRMWARE = "tuski"
 MOTOR_TEST_FIRMWARE = "motor-test"
 LOW_BATTERY_ENTER_V = 19.0      # 电压跌破它 → 视为低电（与固件同一阈值）
 LOW_BATTERY_EXIT_V = 19.5       # 回升超过它 → 解除低电（迟滞，方向同固件）
 
-# 界面意图 → 固件协议字母
-COMMAND_MAP = {"左转": "L", "右转": "R", "前进": "F", "停": "S"}
+# 界面意图 → 统一指令，再由所选协议编码
+COMMAND_MAP = {"左转": "L", "右转": "R", "前进": "F", "后退": "B", "停": "S", "停止": "S"}
 VALID_COMMANDS = {"S", "F", "B", "L", "R", "3", "4"}
+TUSKI_COMMANDS = {"S": "0", "F": "1", "B": "2", "L": "3", "R": "4"}
 
 FIRMWARE_LOW_MSG = "Low battery voltage, please charge"
 FIRMWARE_RECOVERED_MSG = "Battery voltage recovered"
@@ -33,6 +36,7 @@ class SerialProtocol:
 
 
 PROTOCOLS = {
+    TUSKI_FIRMWARE: SerialProtocol(TUSKI_COMMANDS | {code: code for code in TUSKI_COMMANDS.values()}),
     "wheelchair": SerialProtocol({command: command for command in VALID_COMMANDS}),
     MOTOR_TEST_FIRMWARE: SerialProtocol(
         {command: command for command in ("1", "2", "3", "4", "F", "S")},
@@ -76,7 +80,7 @@ class WheelchairLink:
         port_factory=None,
     ) -> None:
         if firmware is None:
-            firmware = MOTOR_TEST_FIRMWARE if port is not None else "wheelchair"
+            firmware = TUSKI_FIRMWARE
         if firmware not in PROTOCOLS:
             raise ValueError(f"未知固件协议：{firmware}")
         self._firmware = firmware
@@ -143,9 +147,10 @@ class WheelchairLink:
             print(f"[指令] {self._last_error}", flush=True)
             return
         duration = self._protocol.pulse_seconds.get(command)
-        if self._is_low and letter != "S":
+        stop_code = self._protocol.commands["S"]
+        if self._is_low and letter != stop_code:
             self._last_error = "低电量：意图已强制为停止"
-            letter = "S"
+            letter = stop_code
             duration = None
         if letter == self._intent and not (retrigger and duration is not None):
             return
@@ -171,8 +176,9 @@ class WheelchairLink:
 
     def close(self) -> None:
         """先发"停"再挂断；模拟模式下只是清引用。"""
-        if self._connected and self._intent != "S":
-            self._send("S", time.perf_counter())
+        stop_code = self._protocol.commands["S"]
+        if self._connected and self._intent != stop_code:
+            self._send(stop_code, time.perf_counter())
         if self._port is not None:
             try:
                 self._port.close()
@@ -244,7 +250,7 @@ class WheelchairLink:
                 self._is_low = True
             elif line == FIRMWARE_RECOVERED_MSG:
                 self._is_low = False
-        if self._is_low and self._intent != "S":
+        if self._is_low:
             self.set_intent("停", now=now)    # 数值回报和文本告警都立即覆盖旧指令
 
     def _status(self) -> LinkStatus:

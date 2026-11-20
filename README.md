@@ -45,11 +45,15 @@ Run the demo or the offline tests from the repository root. The demo opens the c
 
 When starting the main gaze demo, hand and eye preview, or standalone keyboard serial test in an interactive terminal, press Enter for simulation or enter `2` and supply the controller's serial port. Video playback and an explicit `--serial-port` (`--port` for the standalone test) skip the menu.
 
+主眼动和手眼预览默认使用 Tuski 的数字协议，配套固件为 `wheelchair_controller.ino`。连接原电机测试草图 `ardino_demo.ino` 时，指定 `--firmware motor-test`。
+
+The gaze demo and hand and eye preview default to Tuski's numeric protocol for `wheelchair_controller.ino`. To connect to the original `ardino_demo.ino` sketch, specify `--firmware motor-test`.
+
 ```powershell
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py
 python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
-python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --keyboard --firmware motor-test
+python .\EyeWheelchairProject\src\interaction\hand_eye_preview.py --keyboard
 python -m pytest -q .\EyeWheelchairProject\tests
 ```

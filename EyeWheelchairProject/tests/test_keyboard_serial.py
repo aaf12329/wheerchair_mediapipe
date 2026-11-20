@@ -39,6 +39,8 @@ def test_standalone_keyboard_uses_selected_output_mode(monkeypatch, capsys, opti
     assert main() == 0
 
     output = capsys.readouterr().out
+    if answers and answers[0] == "2":
+        assert "ardino_demo.ino" in output
     if options or answers[0] == "2":
         open_port.assert_called_once_with("COM9", 9600, timeout=0, write_timeout=0.5)
     else:
@@ -117,3 +119,16 @@ def test_motor_test_keyboard_uses_digit_keys_and_ignores_turns(monkeypatch):
     finally:
         link.close()
     assert port.tx == [b"1", b"S", b"2", b"S"]
+
+
+def test_tuski_keyboard_sends_all_five_digit_commands(monkeypatch):
+    link, port = make_link(firmware="tuski")
+    keys = Mock(side_effect=["0", "1", "2", "3", "4", "q"])
+    clock = SimpleNamespace(perf_counter=lambda: 0.0, sleep=Mock())
+    monkeypatch.setattr(keyboard_serial, "read_key", keys)
+    monkeypatch.setattr(keyboard_serial, "time", clock)
+
+    keyboard_serial.run_keyboard(Mock(), link)
+    link.close()
+
+    assert port.tx == [b"0\n", b"GET_DATA\n", b"1\n", b"2\n", b"3\n", b"4\n", b"0\n"]

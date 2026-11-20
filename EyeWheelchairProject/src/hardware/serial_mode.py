@@ -2,6 +2,8 @@
 
 import sys
 
+from hardware.serial_link import MOTOR_TEST_FIRMWARE
+
 
 def select_serial_port(port: str | None, *, firmware: str | None = None) -> str | None:
     """直接使用已指定的串口，或让交互式用户选择模拟或实际发送。"""
@@ -18,7 +20,7 @@ def select_serial_port(port: str | None, *, firmware: str | None = None) -> str 
                 break
             print("请输入 1 或 2。")
 
-        sketch = "wheelchair_controller.ino" if firmware == "wheelchair" else "ardino_demo.ino"
+        sketch = "ardino_demo.ino" if firmware == MOTOR_TEST_FIRMWARE else "wheelchair_controller.ino"
         print(f"请确认主控板烧录的是 {sketch}。")
         return input("输入主板串口（如 COM5，留空进入模拟模式）：").strip() or None
     except EOFError:

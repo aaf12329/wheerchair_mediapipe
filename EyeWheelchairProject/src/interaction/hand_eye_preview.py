@@ -157,7 +157,7 @@ def cli() -> None:
     source.add_argument("--video", type=Path, help="在模拟模式下播放录像")
     source.add_argument("--keyboard", action="store_true", help="在 Windows 终端使用键盘控制，不打开摄像头")
     parser.add_argument("--serial-port", help="连接指定串口，例如 COM3")
-    parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，指定串口时默认 motor-test")
+    parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，默认 tuski（修订版轮椅固件）")
     args = parser.parse_args()
     if args.video is not None and args.serial_port is not None:
         parser.error("录像模式使用模拟，不能同时指定串口。")

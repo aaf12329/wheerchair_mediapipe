@@ -12,6 +12,7 @@ SRC_DIR = str(Path(__file__).resolve().parents[4] / "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from hardware.serial_link import MOTOR_TEST_FIRMWARE  # noqa: E402
 from hardware.serial_mode import select_serial_port  # noqa: E402
 
 try:
@@ -139,7 +140,7 @@ def main():
             print("未找到串口。")
         return 0
     try:
-        port = select_serial_port(args.port)
+        port = select_serial_port(args.port, firmware=MOTOR_TEST_FIRMWARE)
         read_keys = make_key_reader()
         connection = None
         if port is not None:
