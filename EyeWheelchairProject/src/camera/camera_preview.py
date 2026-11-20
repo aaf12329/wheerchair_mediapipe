@@ -1,18 +1,26 @@
-"""第 1 周：仅摄像头基线测试。禁止连接轮椅、Arduino 或电机驱动。"""
+"""摄像头预览、录像和截图入口。
+
+main() → open_camera() → run_loop() → read_frame() / show() / handle_key()。
+摄像头帧 → 状态叠层、录像或截图。
+"""
 from datetime import datetime
 from pathlib import Path
+import sys
 import time
 
 import cv2
+
+# 兼容直接运行此脚本。
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from camera.video_input import open_camera as open_video_camera  # noqa: E402
+from common.paths import CAMERA_SNAPSHOTS_DIR as SNAPSHOT_DIR, RAW_VIDEOS_DIR as VIDEO_DIR  # noqa: E402
 
 CAMERA_INDEX = 0
 WIDTH = 1280
 HEIGHT = 720
 WINDOW_NAME = "EyeWheelchair Camera | Q quit | R record | S snapshot"
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-VIDEO_DIR = PROJECT_ROOT / "data" / "raw_videos"
-SNAPSHOT_DIR = PROJECT_ROOT / "data" / "snapshots"
 
 
 # ---------- 工具函数 ----------
@@ -31,18 +39,12 @@ def ensure_dirs() -> None:
 # ---------- 摄像头 ----------
 
 def open_camera() -> cv2.VideoCapture:
-    """打开摄像头，设置分辨率，失败则抛异常。"""
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(CAMERA_INDEX)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    if not cap.isOpened():
-        raise RuntimeError(
-            "摄像头无法打开。请拔插 USB 摄像头；关闭占用摄像头的软件；"
-            "或把 CAMERA_INDEX 从 0 改为 1。"
-        )
-    return cap
+    """启动预览时按本入口的分辨率打开摄像头。"""
+    return open_video_camera(
+        CAMERA_INDEX, WIDTH, HEIGHT,
+        error_message="摄像头无法打开。请拔插 USB 摄像头；关闭占用摄像头的软件；"
+        "或把 CAMERA_INDEX 从 0 改为 1。",
+    )
 
 
 def read_frame(cap: cv2.VideoCapture):

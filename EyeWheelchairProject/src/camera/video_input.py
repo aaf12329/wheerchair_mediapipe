@@ -1,9 +1,23 @@
-"""录像输入。交互演示通过 open_video 打开文件，用 frame_delay_ms 安排显示节奏。"""
+"""摄像头和录像输入。演示打开输入一遍，再按 frame_delay_ms 安排播放节奏。"""
 
 from math import ceil, isfinite
 from pathlib import Path
 
 import cv2
+
+
+def open_camera(index: int, width: int, height: int, *, error_message: str) -> cv2.VideoCapture:
+    """优先以 DirectShow 打开摄像头，再尝试 OpenCV 的默认后端。"""
+    capture = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+    if not capture.isOpened():
+        capture.release()
+        capture = cv2.VideoCapture(index)
+    if not capture.isOpened():
+        capture.release()
+        raise RuntimeError(error_message)
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    return capture
 
 
 def open_video(path: Path) -> tuple[cv2.VideoCapture, float]:

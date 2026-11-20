@@ -50,23 +50,24 @@
 """
 from datetime import datetime
 from pathlib import Path
+import sys
 import time
 
 import cv2
-import mediapipe as mp
 import numpy as np
+
+# 兼容直接运行此脚本。
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from camera.video_input import open_camera as open_video_camera  # noqa: E402
+from common.paths import FACE_MODEL, HAND_MODEL, LANDMARK_SNAPSHOTS_DIR as SNAPSHOT_DIR  # noqa: E402
+from vision.mediapipe_video import create_face_landmarker, create_hand_landmarker, read_detection_input  # noqa: E402
 
 # ---- 运行参数 ----
 CAMERA_INDEX = 0
 WIDTH, HEIGHT = 960, 540
 KEY_DEBOUNCE_SECONDS = 0.25  # 两次按键响应的最小间隔：按住不放时不再连发
-
-# ---- 路径 ----
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MODEL_DIR = PROJECT_ROOT / "models"
-FACE_MODEL = MODEL_DIR / "face_landmarker.task"
-HAND_MODEL = MODEL_DIR / "hand_landmarker.task"
-SNAPSHOT_DIR = PROJECT_ROOT / "data" / "landmark_snapshots"
 
 WINDOW_NAME = "MediaPipe Landmarks | Q quit | S snapshot"
 
@@ -161,84 +162,32 @@ def draw_hands(frame, hand_result) -> None:
 
 
 def open_camera() -> cv2.VideoCapture:
-    """打开摄像头并设置画面宽高；打不开时报一句中文提示。
-
-    调用关系：被 main() 在启动时调用一次，返回的 cap 会一路传给 read_and_detect()。
-    """
-    #开摄像头(start)
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(CAMERA_INDEX)
-    #设置画面高度和宽度
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    if not cap.isOpened():
-        raise RuntimeError("摄像头无法打开：请关闭占用摄像头的软件，或将 CAMERA_INDEX 改为 1。")
-    #开摄像头(stop)
-    return cap
-
-
-_detectors_kept_alive: list = []  # 见 create_detectors() 里的说明
+    """启动预览时按本入口的分辨率打开摄像头。"""
+    return open_video_camera(
+        CAMERA_INDEX, WIDTH, HEIGHT,
+        error_message="摄像头无法打开：请关闭占用摄像头的软件，或将 CAMERA_INDEX 改为 1。",
+    )
 
 
 def create_detectors():
-    """建两个识别器：人脸（478 点）和手部（每只手 21 点）。
-
-    调用关系：被 main() 在启动时调用一次（读模型慢，绝不能放进循环）；
-    内部调用 MediaPipe 的 FaceLandmarker / HandLandmarker 的 create_from_options()。
-    返回值交给 read_and_detect()，由它每帧各调一次 detect_for_video()。
-    """
-    if not FACE_MODEL.exists() or not HAND_MODEL.exists():
-        missing = [str(p.name) for p in (FACE_MODEL, HAND_MODEL) if not p.exists()]
+    """创建同帧预览使用的人脸和手部检测器。"""
+    missing = [path.name for path in (FACE_MODEL, HAND_MODEL) if not path.exists()]
+    if missing:
         raise FileNotFoundError(f"缺少模型：{', '.join(missing)}")
-
-    vision = mp.tasks.vision
-    mode = vision.RunningMode.VIDEO
-    face_options = vision.FaceLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=str(FACE_MODEL)),
-        running_mode=mode,
-        num_faces=1,
-        min_face_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
-    hand_options = vision.HandLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=str(HAND_MODEL)),
-        running_mode=mode,
-        num_hands=2,
-        min_hand_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
-    face_detector = vision.FaceLandmarker.create_from_options(face_options)
-    hand_detector = vision.HandLandmarker.create_from_options(hand_options)
-    # 保活：实测 MediaPipe 1.0.1 在 Windows 上回收这类对象要卡约 42 秒
-    # （拆推理图时的内部等待）。留一个长期引用不让它们被回收，退出时交给系统回收，
-    # 整个进程 1 秒内就能结束。这个文件有两个识别器，所以两个都要留引用。
-    _detectors_kept_alive.extend((face_detector, hand_detector))
-    return face_detector, hand_detector
+    return create_face_landmarker(FACE_MODEL), create_hand_landmarker(HAND_MODEL)
 
 
 # ============================ 3) 主流程 ============================
 
 
 def read_and_detect(cap, face_detector, hand_detector, started: float, *, video_time: float | None = None):
-    """读一帧 → 镜像 → 两个识别器各跑一次，返回（画面, 当前时间, 人脸结果, 手部结果）。
-
-    调用关系：被 main() 每帧调用（循环第一步）；内部调用 cap.read()、
-    cv2.flip / cv2.cvtColor / mp.Image，以及两次 detect_for_video()（本程序最耗时的两行）。
-    两次推理共用同一帧和时间戳。录像由调用者提供帧时间，到片尾时返回 None。
-    """
-    ok, frame = cap.read()
-    if not ok:
-        if video_time is not None:
-            return None
-        raise RuntimeError("摄像头读取失败。")
-    frame = cv2.flip(frame, 1)
-    now = time.perf_counter() if video_time is None else video_time
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    timestamp_ms = int((now - started) * 1000)
-    face_result = face_detector.detect_for_video(mp_image, timestamp_ms)
-    hand_result = hand_detector.detect_for_video(mp_image, timestamp_ms)
+    """对同一张推理图运行双模型，返回帧、当前时间及两个检测结果。"""
+    prepared = read_detection_input(cap, started, clock=time.perf_counter, video_time=video_time)
+    if prepared is None:
+        return None
+    frame, now, image, timestamp_ms = prepared
+    face_result = face_detector.detect_for_video(image, timestamp_ms)
+    hand_result = hand_detector.detect_for_video(image, timestamp_ms)
     return frame, now, face_result, hand_result
 
 

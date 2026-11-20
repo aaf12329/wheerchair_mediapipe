@@ -71,13 +71,14 @@ import sys
 import time
 
 import cv2
-import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # 脚本直接运行时，把 src/ 加进搜索路径以引入录像和串口接口
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from camera.video_input import frame_delay_ms, open_video  # noqa: E402
+from camera.video_input import frame_delay_ms, open_camera as open_video_camera, open_video  # noqa: E402
+from common.paths import FACE_MODEL as MODEL  # noqa: E402
+from vision.mediapipe_video import create_face_landmarker, read_face_frame  # noqa: E402
 from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402  ← 在 sys.path 之后导入
 from hardware.serial_mode import select_serial_port  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
@@ -97,8 +98,6 @@ EAR_SMOOTHING_FRAMES = 3                             # 眼睛开合值平滑：�
 KEY_DEBOUNCE_SECONDS = 0.25                          # 两次按键响应的最小间隔：按住不放时不再连发
 
 # ---- 路径与窗口 ----
-ROOT = Path(__file__).resolve().parents[2]
-MODEL = ROOT / "models" / "face_landmarker.task"
 WINDOW = "Gaze Select + Blink Confirm | Q quit | C recalibrate | I invert | screen demo only"
 # 中文字体逐个探测：msyh 缺失时回退，换机器不会直接崩
 FONT_CANDIDATES = (
@@ -417,44 +416,16 @@ class GazeBlinkDetector:
 
 
 def open_camera() -> cv2.VideoCapture:
-    """打开摄像头并设置画面宽高；打不开时报一句中文提示。
-
-    调用关系：被 main() 在启动时调用一次，返回的 cap 会一路传给 read_frame()。
-    """
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(CAMERA_INDEX)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    if not cap.isOpened():
-        raise RuntimeError("摄像头无法打开。")
-    return cap
-
-
-_detector_kept_alive: list = []  # 见 make_detector() 里的说明
+    """启动预览时按本入口的分辨率打开摄像头。"""
+    return open_video_camera(
+        CAMERA_INDEX, WIDTH, HEIGHT,
+        error_message="摄像头无法打开。",
+    )
 
 
 def make_detector():
-    """建人脸识别器：加载 models/face_landmarker.task，返回识别器对象。
-
-    调用关系：被 main() 在启动时调用一次（读模型慢，绝不能放进循环）；
-    内部调用 MediaPipe 的 FaceLandmarker.create_from_options()。
-    返回值一路传给 read_frame()，由它每帧调用 detect_for_video()。
-    """
-    if not MODEL.exists():
-        raise FileNotFoundError(f"缺少模型：{MODEL}")
-    vision = mp.tasks.vision
-    options = vision.FaceLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=str(MODEL)),
-        running_mode=vision.RunningMode.VIDEO, num_faces=1,
-        min_face_detection_confidence=0.5, min_tracking_confidence=0.5,
-    )
-    detector = vision.FaceLandmarker.create_from_options(options)
-    # 保活：实测 MediaPipe 1.0.1 在 Windows 上回收这个对象要卡约 42 秒
-    # （拆推理图时的内部等待）。留一个长期引用不让它被回收，退出时交给系统回收，
-    # 整个进程 1 秒内就能结束。
-    _detector_kept_alive.append(detector)
-    return detector
+    """为本入口创建一个 VIDEO 人脸检测器。"""
+    return create_face_landmarker(MODEL)
 
 
 _font_cache: dict[tuple[Path, int], "ImageFont.FreeTypeFont"] = {}
@@ -605,24 +576,8 @@ def render_overlay(frame, status, now, fps, link_info):
 
 
 def read_frame(cap, detector, started: float, *, video_time: float | None = None):
-    """读一帧 → 镜像 → 送识别器，返回（画面, 当前时间, 关键点或 None）。
-
-    调用关系：被 main() 每帧调用（循环第一步）；内部调用 cap.read()、
-    cv2.flip / cv2.cvtColor / mp.Image，以及 detector.detect_for_video()（真正推理的那次）。
-    录像使用帧时间驱动推理和交互，到片尾时返回 None。
-    """
-    ok, frame = cap.read()
-    if not ok:
-        if video_time is not None:
-            return None
-        raise RuntimeError("摄像头读取失败。")
-    frame = cv2.flip(frame, 1)
-    now = time.perf_counter() if video_time is None else video_time
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    result = detector.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int((now - started) * 1000))
-    # detect_for_video 返回对象里，本项目只用到 face_landmarks（478 个点）
-    landmarks = result.face_landmarks[0] if result.face_landmarks else None
-    return frame, now, landmarks
+    """返回镜像帧、当前时间和第一张脸的关键点。"""
+    return read_face_frame(cap, detector, started, clock=time.perf_counter, video_time=video_time)
 
 
 def draw_points(frame, landmarks) -> None:

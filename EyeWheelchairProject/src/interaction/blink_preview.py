@@ -54,12 +54,20 @@ from collections import deque
 from dataclasses import dataclass
 import math
 from pathlib import Path
+import sys
 import time
 
 import cv2
-import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+# 兼容直接运行此脚本。
+if not __package__:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from camera.video_input import open_camera as open_video_camera  # noqa: E402
+from common.paths import FACE_MODEL  # noqa: E402
+from vision.mediapipe_video import create_face_landmarker, read_face_frame  # noqa: E402
 
 
 #默认参数设定：
@@ -91,9 +99,6 @@ WELCOME_ART = (
     "`-----'__",
 )
 
-#path写法（里面全是路径）
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FACE_MODEL = PROJECT_ROOT / "models" / "face_landmarker.task"
 WINDOW_NAME = "Blink Detection | Q quit | C recalibrate | visual test only"
 # 中文字体逐个探测：msyh 缺失时回退，换机器不会直接崩
 FONT_CANDIDATES = (
@@ -330,50 +335,17 @@ class BlinkDetector:
 
 
 def open_camera() -> cv2.VideoCapture:
-    """打开摄像头并设置画面宽高；打不开时报一句中文提示。
-
-    调用关系：被 main() 在启动时调用一次，返回的 cap 会一路传给 read_frame()。
-    """
-    #开摄像头(start)
-    cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_DSHOW)
-    if not cap.isOpened():
-        cap = cv2.VideoCapture(CAMERA_INDEX)
-    #设置画面高度和宽度
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, HEIGHT)
-    if not cap.isOpened():
-        raise RuntimeError("摄像头无法打开，请关闭占用摄像头的软件后重试。")
-    #开摄像头(stop)
-    return cap
-
-
-_detector_kept_alive: list = []  # 见 face_detector() 里的说明
+    """启动预览时按本入口的分辨率打开摄像头。"""
+    return open_video_camera(
+        CAMERA_INDEX, WIDTH, HEIGHT,
+        error_message="摄像头无法打开，请关闭占用摄像头的软件后重试。",
+    )
 
 
 #用模型去检测脸部特征返回一个对象（暂时理解成为一个结构体）
 def face_detector():
-    """建人脸识别器：加载 models/face_landmarker.task，返回识别器对象。
-
-    调用关系：被 main() 在启动时调用一次（读模型很慢，绝不能放进循环）；
-    内部调用 MediaPipe 的 FaceLandmarker.create_from_options()。
-    返回值一路传给 read_frame()，由它每帧调用 detect_for_video()。
-    """
-    if not FACE_MODEL.exists():
-        raise FileNotFoundError(f"缺少模型文件：{FACE_MODEL}")
-    vision = mp.tasks.vision
-    options = vision.FaceLandmarkerOptions(
-        base_options=mp.tasks.BaseOptions(model_asset_path=str(FACE_MODEL)),
-        running_mode=vision.RunningMode.VIDEO,
-        num_faces=1,
-        min_face_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    )
-    detector = vision.FaceLandmarker.create_from_options(options)
-    # 保活：实测 MediaPipe 1.0.1 在 Windows 上回收这个对象要卡约 42 秒
-    # （拆推理图时的内部等待）。留一个长期引用不让它被回收，退出时交给系统回收，
-    # 整个进程 1 秒内就能结束。
-    _detector_kept_alive.append(detector)
-    return detector
+    """为本入口创建一个 VIDEO 人脸检测器。"""
+    return create_face_landmarker(FACE_MODEL)
 
 
 _font_cache: dict[tuple[Path, int], "ImageFont.FreeTypeFont"] = {}
@@ -419,28 +391,8 @@ def draw_chinese_status(frame, lines) -> object:
 
 
 def read_frame(cap, detector, program_started_at: float):
-    """读一帧 → 镜像 → 送识别器，返回（画面, 当前时间, 关键点或 None）。
-
-    调用关系：被 main() 每帧调用（循环的第一步）；
-    内部调用 cap.read()、cv2.flip / cv2.cvtColor / mp.Image，
-    以及 detector.detect_for_video()（真正干活的那一次推理）。
-    三个返回值分别给：画图用（frame）、判定用（now）、算开合值用（landmarks）。
-    """
-    ok, frame = cap.read()
-    if not ok:
-        raise RuntimeError("摄像头读取失败。")
-    frame = cv2.flip(frame, 1)
-    now = time.perf_counter()
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    result = detector.detect_for_video(mp_image, int((now - program_started_at) * 1000))
-
-    #detect_for_video返回对象包含三个东西：
-    #  result.face_landmarks                 ← ★ 唯一被用到的：478 个点的坐标
-    #  result.face_blendshapes               ← 表情系数，没开启 → 空列表
-    #  result.facial_transformation_matrixes ← 人脸姿态矩阵，没开启 → 空列表
-    landmarks = result.face_landmarks[0] if result.face_landmarks else None
-    return frame, now, landmarks
+    """返回镜像帧、当前时间和第一张脸的关键点。"""
+    return read_face_frame(cap, detector, program_started_at, clock=time.perf_counter)
 
 
 def draw_eye_points(frame, landmarks) -> None:
