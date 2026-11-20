@@ -82,13 +82,15 @@ EyeWheelchairProject/
 ├─ yolo_model/                       已归并的视觉模型子项目（暂时封存） / Consolidated vision models (shelved)
 ├─ src/
 │  ├─ camera/
-│  │  └─ camera_preview.py            第 1 周：摄像头基线（预览 / 录像 / 截图）
+│  │  ├─ camera_preview.py            第 1 周：摄像头基线（预览 / 录像 / 截图）
+│  │  └─ video_input.py               录像打开与播放节奏
 │  ├─ vision/
 │  │  └─ landmarks_preview.py         第 2 周：人脸 478 点 + 手部 21 点可视化
 │  ├─ interaction/
 │  │  ├─ blink_preview.py             第 3 步：眨眼校准与计数（已重构，含测试）
 │  │  ├─ gaze_direction_preview.py    第 4 步：视线方向选择（左 / 中 / 右）
-│  │  └─ gaze_blink_confirm_demo.py   第 5 步：视线选方向 + 眨眼确认（界面美化版，接串口层）
+│  │  ├─ gaze_blink_confirm_demo.py   第 5 步：视线选方向 + 眨眼确认（界面美化版，接串口层）
+│  │  └─ hand_eye_preview.py         同帧显示手部骨架、眼部关键点、视线方向和眨眼计数
 │  └─ hardware/
 │     └─ serial_link.py               串口输出层：意图→指令、心跳、电池、低电锁（默认模拟）
 ├─ tests/                             pytest：眨眼判定 / 串口链路 / 界面渲染 + 模型冒烟测试
@@ -104,8 +106,7 @@ EyeWheelchairProject/
 └─ README.md
 ```
 
-五个演示脚本各自独立可运行（按周推进的开发顺序保留下来，方便逐步验证）。唯一的跨文件依赖是
-第 5 步 → `src/hardware/serial_link.py`（串口输出层），且默认以模拟模式运行。
+各演示入口可独立运行。手眼预览复用人脸和手部检测器、眨眼与视线状态机、录像输入。第 5 步演示接入串口层并默认以屏幕模拟运行。
 
 ## 协作与分支（2026-09-30 起）
 
@@ -164,6 +165,13 @@ venv\Scripts\python.exe src\interaction\blink_preview.py
 python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
+手眼预览在同一帧运行人脸与手部模型，同时显示双眼与虹膜关键点、最多两只手的骨架、视线方向和眨眼次数。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。
+
+```powershell
+python .\src\interaction\hand_eye_preview.py
+python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
+```
+
 | 脚本 | 按键 |
 |---|---|
 | `src/camera/camera_preview.py` | `Q` 退出 · `R` 开始/停止录像 · `S` 截图 |
@@ -171,6 +179,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 | `src/interaction/blink_preview.py` | `Q` 退出 · `C` 重新校准 |
 | `src/interaction/gaze_direction_preview.py` | `Q` 退出 · `C` 重新校准 · `I` 反转左右 |
 | `src/interaction/gaze_blink_confirm_demo.py` | `Q` 退出 · `C` 重新校准 · `I` 反转左右 |
+| `src/interaction/hand_eye_preview.py` | `Q` 退出 · `C` 重新校准 · `I` 反转左右 |
 
 两个使用前提：
 
@@ -323,13 +332,15 @@ EyeWheelchairProject/
 ├─ yolo_model/                       已归并的视觉模型子项目（暂时封存） / Consolidated vision models (shelved)
 ├─ src/
 │  ├─ camera/
-│  │  └─ camera_preview.py            Week 1: Camera baseline (preview / record / snapshot)
+│  │  ├─ camera_preview.py            Week 1: Camera baseline (preview / record / snapshot)
+│  │  └─ video_input.py               Video opening and playback timing
 │  ├─ vision/
 │  │  └─ landmarks_preview.py         Week 2: Face 478 points + hand 21 points visualization
 │  ├─ interaction/
 │  │  ├─ blink_preview.py             Step 3: Blink calibration and counting (refactored, with tests)
 │  │  ├─ gaze_direction_preview.py    Step 4: Gaze direction selection (left / center / right)
-│  │  └─ gaze_blink_confirm_demo.py   Step 5: Gaze selects direction + blink confirmation (restyled UI, wired to the serial layer)
+│  │  ├─ gaze_blink_confirm_demo.py   Step 5: Gaze selects direction + blink confirmation (restyled UI, wired to the serial layer)
+│  │  └─ hand_eye_preview.py         Hand skeletons, eye landmarks, gaze direction and blink count in one frame
 │  └─ hardware/
 │     └─ serial_link.py               Serial output layer: intent→command, heartbeat, battery, low-battery lock (simulated by default)
 ├─ tests/                             pytest: blink logic / serial link / UI rendering + model smoke test
@@ -345,7 +356,7 @@ EyeWheelchairProject/
 └─ README.md
 ```
 
-The five demo scripts run independently (the weekly development order is preserved for gradual verification). The only cross-file dependency is step 5 → `src/hardware/serial_link.py` (serial output layer), which itself runs in simulated mode by default.
+Each demo has a standalone entry point. The hand and eye preview reuses the face and hand detectors, the blink and gaze state machines, and video input. The step 5 demo uses the serial layer and defaults to on-screen simulation.
 
 ## Collaboration and Branches (since 2026-09-30)
 
@@ -399,6 +410,13 @@ Use `--video` to play a recorded MP4 in the main demo. Playback uses on-screen s
 python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
+The hand and eye preview runs both models on the same frame. It displays eye and iris landmarks, skeletons for up to two hands, gaze direction and blink count. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
+
+```powershell
+python .\src\interaction\hand_eye_preview.py
+python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
+```
+
 | Script | Keys |
 |---|---|
 | `src/camera/camera_preview.py` | `Q` quit · `R` start/stop recording · `S` snapshot |
@@ -406,6 +424,7 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 | `src/interaction/blink_preview.py` | `Q` quit · `C` recalibrate |
 | `src/interaction/gaze_direction_preview.py` | `Q` quit · `C` recalibrate · `I` invert left/right |
 | `src/interaction/gaze_blink_confirm_demo.py` | `Q` quit · `C` recalibrate · `I` invert left/right |
+| `src/interaction/hand_eye_preview.py` | `Q` quit · `C` recalibrate · `I` invert left/right |
 
 Two prerequisites:
 

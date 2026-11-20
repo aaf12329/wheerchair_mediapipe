@@ -17,7 +17,7 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
   __main__  →  main()
   │
   ├─ 启动阶段（每个只执行一次）
-  │   ├─ open_camera() / open_video() 打开摄像头或录像，返回 cap
+  │   ├─ open_camera() / camera.video_input.open_video() 打开摄像头或录像
   │   ├─ make_detector()              建识别器：加载 models/face_landmarker.task
   │   ├─ GazeBlinkDetector(started)   建状态机；校准从此刻开始计时
   │   │    └─ self.reset(now)         把所有状态置位（按 C 重新校准走的也是它）
@@ -76,8 +76,9 @@ import mediapipe as mp
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-# 本项目各脚本独立运行（没有包结构），把 src/ 加进搜索路径以引入硬件接口
+# 脚本直接运行时，把 src/ 加进搜索路径以引入录像和串口接口
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from camera.video_input import frame_delay_ms, open_video  # noqa: E402
 from hardware.serial_link import WheelchairLink  # noqa: E402  ← 在 sys.path 之后导入
 
 # ---- 运行参数 ----
@@ -432,21 +433,6 @@ def open_camera() -> cv2.VideoCapture:
     return cap
 
 
-def open_video(path: Path) -> tuple[cv2.VideoCapture, float]:
-    """打开录像并读取标称帧率，供主循环计算帧时间和播放间隔。"""
-    if not path.is_file():
-        raise FileNotFoundError(f"找不到录像：{path}")
-    cap = cv2.VideoCapture(str(path))
-    if not cap.isOpened():
-        cap.release()
-        raise RuntimeError(f"录像无法打开：{path}")
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    if not math.isfinite(fps) or fps <= 0:
-        cap.release()
-        raise RuntimeError(f"无法读取录像帧率：{path}")
-    return cap, fps
-
-
 _detector_kept_alive: list = []  # 见 make_detector() 里的说明
 
 
@@ -747,10 +733,7 @@ def main(video: Path | None = None) -> None:
                 print("窗口已关闭，退出。")
                 break
             key_time = time.perf_counter()
-            delay_ms = 1
-            if video_fps is not None:
-                next_frame_at = playback_started + frame_count / video_fps
-                delay_ms = max(1, math.ceil((next_frame_at - key_time) * 1000))
+            delay_ms = frame_delay_ms(playback_started, frame_count, video_fps, key_time)
             key, key_available_at = pressed_key(key_time, key_available_at, delay_ms)
             if key == "q":
                 break

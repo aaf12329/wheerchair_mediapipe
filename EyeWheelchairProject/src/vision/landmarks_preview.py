@@ -27,8 +27,8 @@
   │   ├─★ draw_results(frame, 人脸结果, 手部结果, fps)
   │   │    ├─ draw_face(frame, 每张脸)      478 个绿点 + 双眼黄圈
   │   │    │    └─ point(lm, w, h)          归一化坐标 → 像素坐标
-  │   │    ├─ draw_hand(frame, 每只手, 标签) 21 个红点 + 20 条蓝线 + LEFT/RIGHT 标签
-  │   │    │    └─ point(lm, w, h)
+  │   │    ├─ draw_hands(frame, 手部结果)    为每只手选取左右手标签
+  │   │    │    └─ draw_hand() → point()    绘制手部骨架与标签
   │   │    └─ 左上角黑底状态栏：FACE / HAND / FPS（英文，用 cv2.putText 画）
   │   ├─★ cv2.imshow(WINDOW_NAME, frame)    把这一帧推到窗口
   │   ├─★ window_is_alive()                 问窗口还活着没（点 ✕ 后为假）
@@ -67,7 +67,6 @@ MODEL_DIR = PROJECT_ROOT / "models"
 FACE_MODEL = MODEL_DIR / "face_landmarker.task"
 HAND_MODEL = MODEL_DIR / "hand_landmarker.task"
 SNAPSHOT_DIR = PROJECT_ROOT / "data" / "landmark_snapshots"
-SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)  # 启动时就建好目录，按 S 时直接写
 
 WINDOW_NAME = "MediaPipe Landmarks | Q quit | S snapshot"
 
@@ -132,17 +131,13 @@ def draw_results(frame, face_result, hand_result, fps: float) -> None:
     """把一帧的所有识别结果画到画面上：人脸点、手部骨架、左上角状态栏。
 
     调用关系：被 main() 每帧调用一次；内部调用 draw_face()（每张脸一次）
-    和 draw_hand()（每只手一次），最后铺黑底画两行英文状态。
+    和 draw_hands()，最后铺黑底画两行英文状态。
     它只读识别结果，不改任何状态——所以调它不会影响别的东西。
     """
     for landmarks in face_result.face_landmarks:
         draw_face(frame, landmarks)
 
-    for index, landmarks in enumerate(hand_result.hand_landmarks):
-        label = "HAND"
-        if index < len(hand_result.handedness) and hand_result.handedness[index]:
-            label = hand_result.handedness[index][0].category_name.upper()
-        draw_hand(frame, landmarks, label)
+    draw_hands(frame, hand_result)
 
     faces = len(face_result.face_landmarks)
     hands = len(hand_result.hand_landmarks)
@@ -151,6 +146,15 @@ def draw_results(frame, face_result, hand_result, fps: float) -> None:
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     cv2.putText(frame, "Q quit | S snapshot | VISUAL ONLY", (14, 65),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.58, (0, 255, 255), 2)
+
+
+def draw_hands(frame, hand_result) -> None:
+    """为关键点预览和手眼集成预览绘制手部骨架与左右手标签。"""
+    for index, landmarks in enumerate(hand_result.hand_landmarks):
+        label = "HAND"
+        if index < len(hand_result.handedness) and hand_result.handedness[index]:
+            label = hand_result.handedness[index][0].category_name.upper()
+        draw_hand(frame, landmarks, label)
 
 
 # ============================ 2) 摄像头与检测器 ============================
@@ -216,18 +220,20 @@ def create_detectors():
 # ============================ 3) 主流程 ============================
 
 
-def read_and_detect(cap, face_detector, hand_detector, started: float):
+def read_and_detect(cap, face_detector, hand_detector, started: float, *, video_time: float | None = None):
     """读一帧 → 镜像 → 两个识别器各跑一次，返回（画面, 当前时间, 人脸结果, 手部结果）。
 
     调用关系：被 main() 每帧调用（循环第一步）；内部调用 cap.read()、
     cv2.flip / cv2.cvtColor / mp.Image，以及两次 detect_for_video()（本程序最耗时的两行）。
-    注意两次推理共用同一个时间戳——它们看的是同一帧画面。
+    两次推理共用同一帧和时间戳。录像由调用者提供帧时间，到片尾时返回 None。
     """
     ok, frame = cap.read()
     if not ok:
+        if video_time is not None:
+            return None
         raise RuntimeError("摄像头读取失败。")
     frame = cv2.flip(frame, 1)
-    now = time.perf_counter()
+    now = time.perf_counter() if video_time is None else video_time
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
     timestamp_ms = int((now - started) * 1000)
@@ -249,29 +255,30 @@ def save_snapshot(frame) -> Path:
 
     调用关系：被 main() 的 S 键分支调用；内部调用 stamp() 拼文件名。
     """
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
     path = SNAPSHOT_DIR / f"landmarks_{stamp()}.jpg"
     cv2.imwrite(str(path), frame)
     return path
 
 
-def window_is_alive() -> bool:
+def window_is_alive(window_name: str = WINDOW_NAME) -> bool:
     """点窗口右上角 ✕ 不会让 waitKey 返回任何值，只能自己问窗口还活着没。
 
     调用关系：被 main() 每帧调用；返回 False 时 main() 就 break 退出循环。
     """
     try:
-        return cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) >= 1
+        return cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) >= 1
     except cv2.error:
         return False
 
 
-def pressed_key(now: float, key_available_at: float):
+def pressed_key(now: float, key_available_at: float, delay_ms: int = 1):
     """读一次按键并去抖，返回（按键小写字符 或 None, 新的可响应时间）。
 
-    调用关系：被 main() 每帧调用；内部调用 cv2.waitKey(1)
+    调用关系：被预览入口每帧调用；内部调用 cv2.waitKey(delay_ms)
     （这一次调用同时兼职：取按键 + 让窗口有机会刷新）。
     """
-    raw_key = cv2.waitKey(1)
+    raw_key = cv2.waitKey(delay_ms)
     if raw_key == -1:
         return None, key_available_at
     if now < key_available_at:  # 按住不放时系统会连发按键，靠最小间隔挡掉
