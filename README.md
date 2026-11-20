@@ -11,7 +11,7 @@ An eye-controlled wheelchair vision prototype using OpenCV and MediaPipe. It tra
 | 了解交互设计与历史记录 / Read the design and project history | [项目文档 / Project notes](EyeWheelchairProject/README.md) |
 | 检查摄像头 / Check the camera | [摄像头预览 / Camera preview](EyeWheelchairProject/src/camera/camera_preview.py) |
 | 演示视线与眨眼交互 / Run the gaze and blink demo | [主程序 / Demo entry point](EyeWheelchairProject/src/interaction/gaze_blink_confirm_demo.py) |
-| 同屏检测手部与眼睛 / Preview hands and eyes together | [手眼预览 / Hand and eye preview](EyeWheelchairProject/src/interaction/hand_eye_preview.py) |
+| 同屏检测手部与眼睛并演示方向指令 / Preview hands and eyes with direction commands | [手眼预览 / Hand and eye preview](EyeWheelchairProject/src/interaction/hand_eye_preview.py) |
 | 接手仓库或修改代码 / Work on the repository | [AGENTS.md](AGENTS.md) |
 | 查看许可 / Read the license | [MIT License](LICENSE) |
 

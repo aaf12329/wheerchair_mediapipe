@@ -1,10 +1,11 @@
-"""在同一画面预览手部骨架、虹膜与眼睑、视线方向和眨眼计数。
+"""同屏预览手部和眼睛，并将经视线与眨眼确认的方向交给轮椅串口层。
 
 main() → 打开摄像头或录像 → landmarks_preview.create_detectors()
   每帧 → read_and_detect() → 同帧的人脸与手部结果
        → update_eyes() → 已有的眨眼与视线状态机
+       → WheelchairControl.update() → WheelchairLink → 串口或模拟
        → render_preview() → 眼部关键点、手部骨架和状态栏
-       → pressed_key() → Q 退出 / C 重新校准 / I 反转左右
+       → pressed_key() → Q 退出 / S 停止 / C 重新校准 / I 反转左右
 """
 
 from argparse import ArgumentParser
@@ -20,7 +21,10 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
+from hardware.serial_link import WheelchairLink  # noqa: E402
 from interaction import blink_preview, gaze_direction_preview  # noqa: E402
+from interaction.gaze_blink_confirm_demo import GazeBlinkDetector  # noqa: E402
+from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 from vision import landmarks_preview  # noqa: E402
 
 WINDOW_NAME = "MediaPipe Hand and Eye Preview"
@@ -41,7 +45,7 @@ def update_eyes(now: float, face_result, blink, gaze):
 # ============================ 2) 设备与画面 ============================
 
 
-def render_preview(frame, face, hand_result, blink_status, gaze_status):
+def render_preview(frame, face, hand_result, blink_status, gaze_status, link_status):
     """绘制眼部和手部关键点，在视频上方放置状态栏。"""
     height, width = frame.shape[:2]
     scale = min(PREVIEW_WIDTH / width, PREVIEW_HEIGHT / height)
@@ -61,38 +65,44 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status):
         cv2.BORDER_CONSTANT, value=(18, 18, 18),
     )
     eye_text = "已检测" if face is not None else "未检测"
-    if gaze_status.score is None:
-        gaze_text = "--"
-    elif gaze_status.center is None:
-        gaze_text = "校准中"
-    else:
-        gaze_text = gaze_status.raw_direction
-    message = blink_status.state
-    if face is not None and (blink_status.is_calibrating or gaze_status.center is None):
-        message = "校准时请睁眼看画面正中约 3 秒"
+    gaze_text = gaze_status.raw_direction or "--"
+    link_text = f"串口 {link_status.mode}" if link_status.connected else "模拟"
+    if not link_status.connected and link_status.last_error:
+        link_text = "模拟（串口未连接）"
+    if link_status.is_low_battery:
+        link_text += " / 低电锁定"
     return blink_preview.draw_chinese_status(frame, (
-        f"眼睛 {eye_text}  |  手部 {len(hand_result.hand_landmarks)} 只",
+        f"眼睛 {eye_text}  |  手部 {len(hand_result.hand_landmarks)} 只  |  {link_text}  |  指令 {link_status.intent or '--'}",
         f"视线 {gaze_text}  |  眨眼 {blink_status.blink_count} 次",
-        message,
-        "Q 退出  |  C 重新校准  |  I 反转左右",
+        gaze_status.message,
+        "Q 退出  |  S 停止  |  C 重新校准  |  I 反转左右",
     ))
 
 
 # ============================ 3) 主流程 ============================
 
 
-def main(video: Path | None = None) -> None:
-    """按同一输入帧驱动双模型、眼部判定与窗口。"""
+def main(video: Path | None = None, *, serial_port: str | None = None) -> None:
+    """按同一输入帧驱动双模型、眼部判定、串口输出与窗口。"""
+    if video is not None and serial_port is not None:
+        raise ValueError("录像模式使用模拟，不能同时指定串口。")
+    link = WheelchairLink(serial_port)
     capture, fps = (landmarks_preview.open_camera(), None) if video is None else open_video(video)
     try:
         face_detector, hand_detector = landmarks_preview.create_detectors()
+        link.open()
         playback_started = time.perf_counter()
         started = playback_started if fps is None else 0.0
         blink = blink_preview.BlinkDetector(started)
-        gaze = gaze_direction_preview.GazeDirectionDetector(started)
+        gaze = GazeBlinkDetector(started)
+        control = WheelchairControl(link)
         frame_count = 0
         key_available_at = 0.0
-        print("手部与眼睛预览已启动。点击窗口后按 Q 退出、C 重新校准、I 反转左右。")
+        if link.connected:
+            link.set_intent("停", now=started)
+        elif link.last_error:
+            print(f"串口未连接，已切到模拟模式。{link.last_error}")
+        print("手部与眼睛预览已启动。请睁眼看正中校准，点击窗口后按 Q 退出或 S 停止。")
 
         while True:
             video_time = frame_count / fps if fps is not None else None
@@ -107,26 +117,39 @@ def main(video: Path | None = None) -> None:
             frame, now, face_result, hand_result = result
             frame_count += 1
             face, blink_status, gaze_status = update_eyes(now, face_result, blink, gaze)
-            cv2.imshow(WINDOW_NAME, render_preview(frame, face, hand_result, blink_status, gaze_status))
+            link_status = control.update(now, gaze_status.state, gaze_status.active, face_present=face is not None)
+            preview = render_preview(frame, face, hand_result, blink_status, gaze_status, link_status)
+            cv2.imshow(WINDOW_NAME, preview)
 
             if not landmarks_preview.window_is_alive(WINDOW_NAME):
                 break
             key_time = time.perf_counter()
             delay = frame_delay_ms(playback_started, frame_count, fps, key_time)
-            key, key_available_at = landmarks_preview.pressed_key(key_time, key_available_at, delay)
+            key, key_available_at = landmarks_preview.pressed_key(
+                key_time, key_available_at, delay, immediate_keys="sq",
+            )
             if key == "q":
                 break
-            if key == "c":
-                blink.reset(now)
+            if key in ("s", "c"):
+                link.set_intent("停", now=now)
                 gaze.reset(now)
+                if key == "c":
+                    blink.reset(now)
             if key == "i":
                 gaze.toggle_invert()
     finally:
-        capture.release()
-        cv2.destroyAllWindows()
+        try:
+            link.set_intent("停")
+        finally:
+            link.close()
+            capture.release()
+            cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="MediaPipe 手部与眼睛集成预览")
-    parser.add_argument("--video", type=Path, help="播放 MP4 等录像文件，省略时使用摄像头")
-    main(parser.parse_args().video)
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument("--video", type=Path, help="在模拟模式下播放录像")
+    source.add_argument("--serial-port", help="使用摄像头并连接指定串口，例如 COM3")
+    args = parser.parse_args()
+    main(args.video, serial_port=args.serial_port)

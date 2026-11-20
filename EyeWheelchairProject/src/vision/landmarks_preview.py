@@ -272,18 +272,20 @@ def window_is_alive(window_name: str = WINDOW_NAME) -> bool:
         return False
 
 
-def pressed_key(now: float, key_available_at: float, delay_ms: int = 1):
+def pressed_key(now: float, key_available_at: float, delay_ms: int = 1, *, immediate_keys: str = ""):
     """读一次按键并去抖，返回（按键小写字符 或 None, 新的可响应时间）。
 
     调用关系：被预览入口每帧调用；内部调用 cv2.waitKey(delay_ms)
     （这一次调用同时兼职：取按键 + 让窗口有机会刷新）。
+    immediate_keys 指定不等待防抖间隔的键，例如停止和退出。
     """
     raw_key = cv2.waitKey(delay_ms)
     if raw_key == -1:
         return None, key_available_at
-    if now < key_available_at:  # 按住不放时系统会连发按键，靠最小间隔挡掉
+    key = chr(raw_key & 0xFF).lower()
+    if key not in immediate_keys and now < key_available_at:
         return None, key_available_at
-    return chr(raw_key & 0xFF).lower(), now + KEY_DEBOUNCE_SECONDS
+    return key, now + KEY_DEBOUNCE_SECONDS
 
 
 def main() -> None:

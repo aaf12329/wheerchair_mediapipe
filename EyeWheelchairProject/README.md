@@ -90,7 +90,8 @@ EyeWheelchairProject/
 │  │  ├─ blink_preview.py             第 3 步：眨眼校准与计数（已重构，含测试）
 │  │  ├─ gaze_direction_preview.py    第 4 步：视线方向选择（左 / 中 / 右）
 │  │  ├─ gaze_blink_confirm_demo.py   第 5 步：视线选方向 + 眨眼确认（界面美化版，接串口层）
-│  │  └─ hand_eye_preview.py         同帧显示手部骨架、眼部关键点、视线方向和眨眼计数
+│  │  ├─ hand_eye_preview.py         同帧显示手部和眼睛，并输出确认后的方向指令
+│  │  └─ wheelchair_control.py       两个演示共用的方向下发和丢脸停车逻辑
 │  └─ hardware/
 │     └─ serial_link.py               串口输出层：意图→指令、心跳、电池、低电锁（默认模拟）
 ├─ tests/                             pytest：眨眼判定 / 串口链路 / 界面渲染 + 模型冒烟测试
@@ -106,7 +107,7 @@ EyeWheelchairProject/
 └─ README.md
 ```
 
-各演示入口可独立运行。手眼预览复用人脸和手部检测器、眨眼与视线状态机、录像输入。第 5 步演示接入串口层并默认以屏幕模拟运行。
+各演示入口可独立运行。手眼预览复用人脸和手部检测器、眨眼与视线状态机、录像输入。手眼预览与第 5 步演示共用方向下发逻辑，默认以屏幕模拟运行。
 
 ## 协作与分支（2026-09-30 起）
 
@@ -166,10 +167,12 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 ```
 
 手眼预览在同一帧运行人脸与手部模型，同时显示双眼与虹膜关键点、最多两只手的骨架、视线方向和眨眼次数。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。
+注视选方向并眨眼确认后，终端会打印指令。默认和录像模式均使用模拟。台架联调可用摄像头和 `--serial-port COM3`，端口名按设备替换。手部用于检测显示。
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
 python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
+python .\src\interaction\hand_eye_preview.py --serial-port COM3
 ```
 
 | 脚本 | 按键 |
@@ -179,7 +182,7 @@ python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
 | `src/interaction/blink_preview.py` | `Q` 退出 · `C` 重新校准 |
 | `src/interaction/gaze_direction_preview.py` | `Q` 退出 · `C` 重新校准 · `I` 反转左右 |
 | `src/interaction/gaze_blink_confirm_demo.py` | `Q` 退出 · `C` 重新校准 · `I` 反转左右 |
-| `src/interaction/hand_eye_preview.py` | `Q` 退出 · `C` 重新校准 · `I` 反转左右 |
+| `src/interaction/hand_eye_preview.py` | `Q` 退出并停止 · `S` 停止 · `C` 停止并重新校准 · `I` 反转左右 |
 
 两个使用前提：
 
@@ -340,7 +343,8 @@ EyeWheelchairProject/
 │  │  ├─ blink_preview.py             Step 3: Blink calibration and counting (refactored, with tests)
 │  │  ├─ gaze_direction_preview.py    Step 4: Gaze direction selection (left / center / right)
 │  │  ├─ gaze_blink_confirm_demo.py   Step 5: Gaze selects direction + blink confirmation (restyled UI, wired to the serial layer)
-│  │  └─ hand_eye_preview.py         Hand skeletons, eye landmarks, gaze direction and blink count in one frame
+│  │  ├─ hand_eye_preview.py         Combined hand and eye preview with confirmed direction commands
+│  │  └─ wheelchair_control.py       Direction output and face-loss stop shared by both demos
 │  └─ hardware/
 │     └─ serial_link.py               Serial output layer: intent→command, heartbeat, battery, low-battery lock (simulated by default)
 ├─ tests/                             pytest: blink logic / serial link / UI rendering + model smoke test
@@ -356,7 +360,7 @@ EyeWheelchairProject/
 └─ README.md
 ```
 
-Each demo has a standalone entry point. The hand and eye preview reuses the face and hand detectors, the blink and gaze state machines, and video input. The step 5 demo uses the serial layer and defaults to on-screen simulation.
+Each demo has a standalone entry point. The hand and eye preview reuses the face and hand detectors, the blink and gaze state machines, and video input. It shares direction output with the step 5 demo. Both default to on-screen simulation.
 
 ## Collaboration and Branches (since 2026-09-30)
 
@@ -411,10 +415,12 @@ python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recordin
 ```
 
 The hand and eye preview runs both models on the same frame. It displays eye and iris landmarks, skeletons for up to two hands, gaze direction and blink count. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
+After gaze selection and blink confirmation, the terminal prints the command. The preview defaults to simulation and uses it for video playback. For bench integration, use the camera with `--serial-port COM3` and substitute the device's port. Hand detection is for display.
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
 python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
+python .\src\interaction\hand_eye_preview.py --serial-port COM3
 ```
 
 | Script | Keys |
@@ -424,7 +430,7 @@ python .\src\interaction\hand_eye_preview.py --video "C:\path\to\recording.mp4"
 | `src/interaction/blink_preview.py` | `Q` quit · `C` recalibrate |
 | `src/interaction/gaze_direction_preview.py` | `Q` quit · `C` recalibrate · `I` invert left/right |
 | `src/interaction/gaze_blink_confirm_demo.py` | `Q` quit · `C` recalibrate · `I` invert left/right |
-| `src/interaction/hand_eye_preview.py` | `Q` quit · `C` recalibrate · `I` invert left/right |
+| `src/interaction/hand_eye_preview.py` | `Q` stop and quit · `S` stop · `C` stop and recalibrate · `I` invert left/right |
 
 Two prerequisites:
 

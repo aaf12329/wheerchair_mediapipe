@@ -39,8 +39,8 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
   │   │    ├─ _update_selection()              校准完成后走这里（视线选择 + 眨眼确认）
   │   │    │    └─ _update_direction()           睁眼时累计停留时间或取消旧候选
   │   │    └─ _status(...) → GazeBlinkStatus   把本帧结果打包返回
-  │   ├─★ link.update(now)                     硬件链路：心跳重发当前指令 + 收电池回报
-  │   │    └─ 确认成功的瞬间：link.set_intent(方向) → 翻译成 L/F/R 发给固件
+  │   ├─★ WheelchairControl.update()          停车判定 → 心跳和收包 → 已确认方向
+  │   │    └─ link.set_intent(方向)            翻译成 L/F/R 发给固件
   │   ├─★ show_status(frame, status, now, fps, link_info)  渲染界面并推窗口
   │   │    └─ render_overlay(...)              面板/指示灯/进度条/卡片/角标（单次 PIL 转换）
   │   ├─★ window_is_alive()                    问窗口还活着没（点 ✕ 后为假）
@@ -80,6 +80,7 @@ from PIL import Image, ImageDraw, ImageFont
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from camera.video_input import frame_delay_ms, open_video  # noqa: E402
 from hardware.serial_link import WheelchairLink  # noqa: E402  ← 在 sys.path 之后导入
+from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 
 # ---- 运行参数 ----
 CAMERA_INDEX = 0
@@ -98,7 +99,6 @@ KEY_DEBOUNCE_SECONDS = 0.25                          # 两次按键响应的最�
 # ---- 硬件链路（协议与安全机制见 src/hardware/serial_link.py 和 README）----
 ENABLE_HARDWARE = False      # ⚠️ False=纯屏幕模拟（默认）；True 时确认结果会真的发往串口
 SERIAL_PORT = "COM3"         # Arduino 的串口号（设备管理器里查）；打不开自动退回模拟模式
-FACE_LOST_STOP_SECONDS = 2.0 # 人脸连续丢失这么久 → 主动发"停"（固件的 3 秒超时是兜底）
 
 # ---- 路径与窗口 ----
 ROOT = Path(__file__).resolve().parents[2]
@@ -184,6 +184,7 @@ class GazeBlinkStatus:
     active: str | None    # 该高亮哪张卡片：左转 / 前进 / 右转 / None
     calibration_progress: float | None = None  # 校准进度 0~1（仅校准状态有值）
     stability_progress: float | None = None    # 方向稳定进度 0~1（仅选择方向状态有值）
+    raw_direction: str | None = None           # 本次有效注视对应的方向
 
 
 class GazeBlinkDetector:
@@ -412,6 +413,7 @@ class GazeBlinkDetector:
             active=active,
             calibration_progress=calibration_progress,
             stability_progress=stability_progress,
+            raw_direction=self._raw_choice,
         )
 
 
@@ -679,8 +681,7 @@ def main(video: Path | None = None) -> None:
         chinese_font(20)
         key_available_at = 0.0
         frame_count = 0
-        prev_state = None
-        face_lost_since = None
+        control = WheelchairControl(link)
 
         print("视线选择演示已启动：请先点一下视频窗口让它获得焦点，然后 Q 退出、C 重新校准、I 反转左右。")
         if link.connected:
@@ -712,16 +713,7 @@ def main(video: Path | None = None) -> None:
             status = flow.update(now, landmarks)
 
             # ---- ③ 连：硬件链路（心跳/收电池）+ 状态变化时下发意图 ----
-            link_info = link.update(now)
-            if prev_state == "等待眨眼" and status.state == "确认成功" and status.active:
-                link.set_intent(status.active)   # "左转"→L / "前进"→F / "右转"→R；低电强制为"停"
-            prev_state = status.state
-            if landmarks is None:
-                face_lost_since = face_lost_since if face_lost_since is not None else now
-                if now - face_lost_since >= FACE_LOST_STOP_SECONDS:
-                    link.set_intent("停")        # 人不见了 → 主动停车（固件超时是兜底）
-            else:
-                face_lost_since = None
+            link_info = control.update(now, status.state, status.active, face_present=landmarks is not None)
 
             # ---- ④ 报：状态面板 + 进度条 + 卡片 + 角标，推给窗口 ----
             frame_count += 1
