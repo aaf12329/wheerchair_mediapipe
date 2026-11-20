@@ -5,6 +5,7 @@
 把顶部 ENABLE_HARDWARE 改为 True 并接好 Arduino 后，确认成功的方向才会经
 src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低电强制停车）。
 按 Q 退出；C 重新校准；I 反转左右方向。
+传入 --video 路径时按录像帧率播放，到片尾自动退出，全程使用屏幕模拟。
 
 文件分三段：
   1) 判定逻辑（纯逻辑 + 状态机类，只吃关键点，不碰摄像头也不画图）—— 可以单独跑测试
@@ -16,7 +17,7 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
   __main__  →  main()
   │
   ├─ 启动阶段（每个只执行一次）
-  │   ├─ open_camera()                打开摄像头，返回 cap（后面每帧从它 read）
+  │   ├─ open_camera() / open_video() 打开摄像头或录像，返回 cap
   │   ├─ make_detector()              建识别器：加载 models/face_landmarker.task
   │   ├─ GazeBlinkDetector(started)   建状态机；校准从此刻开始计时
   │   │    └─ self.reset(now)         把所有状态置位（按 C 重新校准走的也是它）
@@ -60,6 +61,7 @@ src/hardware/serial_link.py 发给固件（含 1 秒心跳、电池回报、低�
 
 关键一点：**只有在"等待眨眼"这个状态下，一次眨眼才算确认**；在别的状态眨眼没有效果。
 """
+from argparse import ArgumentParser
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -404,6 +406,21 @@ def open_camera() -> cv2.VideoCapture:
     return cap
 
 
+def open_video(path: Path) -> tuple[cv2.VideoCapture, float]:
+    """打开录像并读取标称帧率，供主循环计算帧时间和播放间隔。"""
+    if not path.is_file():
+        raise FileNotFoundError(f"找不到录像：{path}")
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        cap.release()
+        raise RuntimeError(f"录像无法打开：{path}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    if not math.isfinite(fps) or fps <= 0:
+        cap.release()
+        raise RuntimeError(f"无法读取录像帧率：{path}")
+    return cap, fps
+
+
 _detector_kept_alive: list = []  # 见 make_detector() 里的说明
 
 
@@ -577,17 +594,20 @@ def render_overlay(frame, status, now, fps, link_info):
 # ============================ 3) 主流程 ============================
 
 
-def read_frame(cap, detector, started: float):
+def read_frame(cap, detector, started: float, *, video_time: float | None = None):
     """读一帧 → 镜像 → 送识别器，返回（画面, 当前时间, 关键点或 None）。
 
     调用关系：被 main() 每帧调用（循环第一步）；内部调用 cap.read()、
     cv2.flip / cv2.cvtColor / mp.Image，以及 detector.detect_for_video()（真正推理的那次）。
+    录像使用帧时间驱动推理和交互，到片尾时返回 None。
     """
     ok, frame = cap.read()
     if not ok:
+        if video_time is not None:
+            return None
         raise RuntimeError("摄像头读取失败。")
     frame = cv2.flip(frame, 1)
-    now = time.perf_counter()
+    now = time.perf_counter() if video_time is None else video_time
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     result = detector.detect_for_video(mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), int((now - started) * 1000))
     # detect_for_video 返回对象里，本项目只用到 face_landmarks（478 个点）
@@ -622,13 +642,13 @@ def window_is_alive() -> bool:
         return False
 
 
-def pressed_key(now: float, key_available_at: float):
+def pressed_key(now: float, key_available_at: float, delay_ms: int = 1):
     """读一次按键并去抖，返回（按键小写字符 或 None, 新的可响应时间）。
 
-    调用关系：被 main() 每帧调用；内部调用 cv2.waitKey(1)
+    调用关系：被 main() 每帧调用；内部调用 cv2.waitKey(delay_ms)
     （这一次调用同时兼职：取按键 + 让窗口有机会刷新）。
     """
-    raw_key = cv2.waitKey(1)
+    raw_key = cv2.waitKey(delay_ms)
     if raw_key == -1:
         return None, key_available_at
     if now < key_available_at:  # 按住不放时系统会连发按键，靠最小间隔挡掉
@@ -636,33 +656,43 @@ def pressed_key(now: float, key_available_at: float):
     return chr(raw_key & 0xFF).lower(), now + KEY_DEBOUNCE_SECONDS
 
 
-def main() -> None:
+def main(video: Path | None = None) -> None:
+    """初始化输入、识别器和串口适配，每帧走一遍看、判、连、报、控。"""
     print(cat)
-    """程序入口：建好摄像头、识别器、硬件链路后，每帧走一遍 看→判→连→报→控。"""
-    # ==================== 启动阶段（下面每个调用只执行一次）====================
-    cap = open_camera()                          # ① 打开摄像头
-    detector = make_detector()                   # ② 建识别器
-    started = time.perf_counter()                # 给 MediaPipe 算毫秒时间戳用
-    flow = GazeBlinkDetector(started)            # ③ 建状态机；校准从此刻开始计时
-    link = WheelchairLink(SERIAL_PORT if ENABLE_HARDWARE else None)  # ④ 硬件链路（默认模拟）
-    link.open()                                  #    串口打不开时自动退回模拟模式
-    key_available_at = 0.0                       # 按键防抖：下次允许响应的时间点
-    chinese_font(20)                             # ⑤ 提前加载字体，字体缺失时立刻报错
-    frame_count = 0                              # 只用来算 FPS
-    prev_state = None                            # 用来捕捉"确认成功"这一瞬间
-    face_lost_since = None                       # 人脸持续丢失的起点（超时就发"停"）
-
-    print("视线选择演示已启动：请先点一下视频窗口让它获得焦点，然后 Q 退出、C 重新校准、I 反转左右。")
-    if link.connected:
-        print(f"硬件链路已连接：{link.mode}。确认成功的方向会真的发往固件（低电时被强制为停止）。")
-    else:
-        reason = f"（{link.last_error}）" if link.last_error else ""
-        print(f"模拟模式{reason}：确认结果只显示在屏幕上，不会发出任何指令。")
+    link = WheelchairLink(SERIAL_PORT if ENABLE_HARDWARE and video is None else None)
+    cap, video_fps = (open_camera(), None) if video is None else open_video(video)
     try:
+        detector = make_detector()
+        link.open()
+        chinese_font(20)
+        key_available_at = 0.0
+        frame_count = 0
+        prev_state = None
+        face_lost_since = None
+
+        print("视线选择演示已启动：请先点一下视频窗口让它获得焦点，然后 Q 退出、C 重新校准、I 反转左右。")
+        if link.connected:
+            print(f"硬件链路已连接：{link.mode}。确认成功的方向会真的发往固件（低电时被强制为停止）。")
+        else:
+            reason = f"（{link.last_error}）" if link.last_error else ""
+            print(f"模拟模式{reason}：确认结果只显示在屏幕上，不会发出任何指令。")
+
+        playback_started = time.perf_counter()
+        started = playback_started if video_fps is None else 0.0
+        flow = GazeBlinkDetector(started)
         # ================= 每帧循环：看 → 判 → 连 → 报 → 控 =================
         while True:
             # ---- ① 看：取一帧并识别，拿回 478 个关键点 ----
-            frame, now, landmarks = read_frame(cap, detector, started)
+            video_time = frame_count / video_fps if video_fps is not None else None
+            result = read_frame(cap, detector, started, video_time=video_time)
+            if result is None:
+                if frame_count == 0:
+                    raise RuntimeError(f"录像没有可读取的画面：{video}")
+                print("录像播放结束。")
+                break
+            frame, now, landmarks = result
+            if video_fps is not None and frame.shape[:2] != (HEIGHT, WIDTH):
+                frame = cv2.resize(frame, (WIDTH, HEIGHT))  # 面板和底部卡片使用固定坐标
             if landmarks is not None:
                 draw_points(frame, landmarks)    # 顺便把关键点画出来（只为肉眼检查）
 
@@ -683,14 +713,19 @@ def main() -> None:
 
             # ---- ④ 报：状态面板 + 进度条 + 卡片 + 角标，推给窗口 ----
             frame_count += 1
-            fps = frame_count / max(now - started, 0.001)
+            fps = video_fps if video_fps is not None else frame_count / max(now - started, 0.001)
             show_status(frame, status, now, fps, link_info)
 
             # ---- ⑤ 控：先看窗口还活着没，再读键盘 ----
             if not window_is_alive():            # 窗口被点 ✕ 关掉就退出
                 print("窗口已关闭，退出。")
                 break
-            key, key_available_at = pressed_key(now, key_available_at)
+            key_time = time.perf_counter()
+            delay_ms = 1
+            if video_fps is not None:
+                next_frame_at = playback_started + frame_count / video_fps
+                delay_ms = max(1, math.ceil((next_frame_at - key_time) * 1000))
+            key, key_available_at = pressed_key(key_time, key_available_at, delay_ms)
             if key == "q":
                 break
             if key == "c":
@@ -708,4 +743,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(description="MediaPipe 视线选择与眨眼确认演示")
+    parser.add_argument("--video", type=Path, help="在屏幕模拟模式下播放录像，例如 MP4")
+    main(parser.parse_args().video)

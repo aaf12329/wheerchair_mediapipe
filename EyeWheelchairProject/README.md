@@ -158,6 +158,12 @@ venv\Scripts\python.exe -m pip install opencv-python mediapipe numpy pillow pyse
 venv\Scripts\python.exe src\interaction\blink_preview.py
 ```
 
+主演示可以用 `--video` 读取已录制的 MP4，在屏幕模拟模式下按录像标称帧率播放，播完自动退出。
+
+```powershell
+python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
+```
+
 | 脚本 | 按键 |
 |---|---|
 | `src/camera/camera_preview.py` | `Q` 退出 · `R` 开始/停止录像 · `S` 截图 |
@@ -388,6 +394,12 @@ In Git Bash, write `venv\Scripts\python.exe` as `venv/Scripts/python.exe`; the s
 
 ```bash
 venv\Scripts\python.exe src\interaction\blink_preview.py
+```
+
+Use `--video` to play a recorded MP4 in the main demo. Playback uses on-screen simulation at the video's nominal frame rate and exits at the end.
+
+```powershell
+python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
 | Script | Keys |

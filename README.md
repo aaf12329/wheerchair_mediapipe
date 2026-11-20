@@ -35,11 +35,12 @@ On Windows, use an existing Conda environment or venv. If `mul_pro` is already s
 python -m pip install opencv-contrib-python mediapipe numpy pillow pyserial pytest
 ```
 
-在仓库根目录运行主演示或离线测试。主演示需要可用的摄像头；离线测试无需摄像头，缺少可用录像时会跳过录像测试。`pytest` 仅用于测试。
+在仓库根目录运行主演示或离线测试。主演示默认打开摄像头，也可用 `--video` 播放已有的 MP4。录像模式只使用屏幕模拟，播放完自动退出。离线测试无需摄像头，缺少可用录像时会跳过使用本地录像的测试。`pytest` 仅用于测试。
 
-Run the demo or the offline tests from the repository root. The demo requires a working camera. The offline tests run without one and skip the video test when no usable recording is available. `pytest` is only needed for tests.
+Run the demo or the offline tests from the repository root. The demo opens the camera by default and accepts an MP4 file through `--video`. Video playback uses on-screen simulation and exits at the end. The offline tests run without a camera and skip the test that uses a local recording when none is available. `pytest` is only needed for tests.
 
 ```powershell
 python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py
+python .\EyeWheelchairProject\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 python -m pytest -q .\EyeWheelchairProject\tests
 ```
