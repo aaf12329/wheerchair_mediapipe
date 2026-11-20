@@ -39,9 +39,9 @@ EyeWheelchairProject
 | `huang` | 与主干采用相同的 MediaPipe 检测链路，供组员独立开发。 / Contributor branch using the same MediaPipe detection pipeline as main. | 落后 `main` 2 个提交，无独有提交；尚未包含主干最新的 README 同步与固件目录调整。 / 2 commits behind main, with no unique commits; missing the latest README update and firmware folder changes. |
 | `chen` | 新增 `src/common/` 公共模块、YuNet + YOLO 眼动后端；眨眼/视线预览支持 YOLO 与 MediaPipe 同帧对比及逐帧 CSV；确认演示使用 YOLO，并补充接线与交接资料。 / Shared utilities, YuNet + YOLO backend, YOLO/MediaPipe comparison with per-frame CSV in blink/gaze previews, a YOLO confirmation demo, and wiring/handover notes. | 有 12 个独有提交，同时缺少 `main` 的 2 个独有提交，尚未合并；固件仍采用旧路径。 / 12 unique commits and missing 2 main-only commits; not merged, with firmware still at the old paths. |
 
-上表是原项目的历史记录。下文的目录、依赖和运行方法适用于本仓库的 **`chen/main`**，当前视觉入口使用 MediaPipe。
+上表是原项目的历史记录。下文的目录、依赖和运行方法适用于本仓库的 **`chen/main`**。眼动使用 MediaPipe，手眼预览另外运行 ONNX 手势模型。
 
-The table records the original project's branches. The directory tree, dependencies, and run instructions below describe this repository's **`chen/main`**, which uses MediaPipe for its vision demos.
+The table records the original project's branches. The sections below describe this repository's **`chen/main`**. Eye tracking uses MediaPipe, and the hand-eye preview also runs an ONNX gesture model.
 
 README 有中文版本和英文版本，中文在上，英文在下；协作流程见 [GIT_GUIDE.md](GIT_GUIDE.md)，开发与代码规范见 [Agent.md](Agent.md)。
 The Chinese version appears first, followed by the English version; see [GIT_GUIDE.md](GIT_GUIDE.md) for the collaboration workflow and [Agent.md](Agent.md) for development and code standards.
@@ -88,12 +88,13 @@ wheerchair_mediapipe/
 │  │  ├─ landmarks_preview.py         第 2 周：人脸 478 点 + 手部 21 点可视化
 │  │  ├─ mediapipe_video.py           建检测器、预处理和单帧推理
 │  │  ├─ eye_geometry.py              眼部索引、双眼开合比和虹膜位置
+│  │  ├─ hand_gesture_detector.py     ONNX 手势分类、检测框与置信度
 │  │  └─ landmark_drawing.py         眼睛、脸部和手部骨架绘制
 │  ├─ interaction/
 │  │  ├─ blink_preview.py             第 3 步：眨眼校准与计数（已重构，含测试）
 │  │  ├─ gaze_direction_preview.py    第 4 步：视线方向选择（左 / 中 / 右）
 │  │  ├─ gaze_blink_confirm_demo.py   第 5 步：视线选方向 + 眨眼确认（界面美化版，接串口层）
-│  │  ├─ hand_eye_preview.py         同帧显示手部和眼睛，并输出确认后的方向指令
+│  │  ├─ hand_eye_preview.py         同帧显示手势和眼睛，输出眼动确认指令
 │  │  ├─ keyboard_serial.py           Windows 终端键盘输入与方向指令
 │  │  ├─ *_state.py                   眨眼、视线方向和眨眼确认状态机
 │  │  └─ wheelchair_control.py       两个演示共用的方向下发和丢脸停车逻辑
@@ -112,7 +113,7 @@ wheerchair_mediapipe/
 └─ README.md
 ```
 
-各演示入口可独立运行。手眼预览复用人脸和手部检测器、眨眼与视线状态机、录像输入。手眼预览与第 5 步演示共用方向下发逻辑，默认以屏幕模拟运行。
+各演示入口可独立运行。手眼预览复用 MediaPipe 人脸检测器、眨眼与视线状态机、录像输入，并用 ONNX 输出手势分类。它与第 5 步演示共用方向下发逻辑，默认以屏幕模拟运行。
 
 ## 协作与分支（2026-09-30 起）
 
@@ -135,14 +136,14 @@ wheerchair_mediapipe/
 
 ```text
 摄像头 / MP4 → video_input.py → BGR 帧 (H, W, 3)
-  → mediapipe_video.py → 镜像 RGB 图和毫秒时间戳 → 人脸 / 手部关键点
-  ├─ 眼部 → eye_geometry.py → 双眼开合比 / 虹膜横向位置 → *_state.py
+  ├─ mediapipe_video.py → 镜像 RGB 图和毫秒时间戳 → 眼部关键点
+  │        → eye_geometry.py → 双眼开合比 / 虹膜横向位置 → *_state.py
   │        → 已确认方向 → WheelchairControl → WheelchairLink → 模拟或串口
-  └─ 眼部与手部 → landmark_drawing.py → preview_ui.py → 预览画面
+  └─ hand_gesture_detector.py → 手势类别 / 置信度 / 检测框 → 预览画面和终端
 Windows 终端按键 → keyboard_serial.py → WheelchairLink → 模拟或串口
 ```
 
-`common/paths.py` 集中管理模型、录像和截图路径。手眼预览从同一张输入图获得眼部与手部关键点，手部结果用于绘制骨架。原版固件的串口编码见 [电机测试固件](#原始电机测试固件--original-motor-test-firmware)。
+`common/paths.py` 集中管理模型、录像和截图路径。独立的 `landmarks_preview.py` 使用 MediaPipe 绘制手部骨架。原版固件的串口编码见 [电机测试固件](#原始电机测试固件--original-motor-test-firmware)。
 
 ## 环境准备
 
@@ -150,7 +151,7 @@ Windows 终端按键 → keyboard_serial.py → WheelchairLink → 模拟或串�
 
 ```bash
 python -m venv venv
-venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pillow pyserial pytest
+venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pillow pyserial onnxruntime pytest
 ```
 
 在 Git Bash 里把 `venv\Scripts\python.exe` 写成 `venv/Scripts/python.exe`，下文同理。
@@ -169,8 +170,20 @@ venv\Scripts\python.exe src\interaction\blink_preview.py
 python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
-手眼预览在同一帧运行人脸与手部模型，同时显示双眼与虹膜关键点、最多两只手的骨架、视线方向和眨眼次数。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。
-注视选方向并眨眼确认后，终端会打印指令。连接串口时默认使用 `motor-test`，眼控可发送前进与停止。使用本仓库修订版轮椅固件时可加 `--firmware wheelchair` 以使用对应的转向、心跳和电池查询。手部用于检测显示。
+手眼预览在同一帧运行 MediaPipe 眼动检测和 `gaze_wheelchair_pack` 的 `best.onnx` 手势分类。开始时睁眼看画面正中约 3 秒以校准视线与眨眼。手势结果以检测框、类别和置信度显示，类别变化时在终端打印。
+
+手势模型默认路径为 `models/gesture_best.onnx`，该本地权重独立于 Git。可以复制运行包的 `retinaface_arcface/best.onnx` 到默认路径，或通过 `--gesture-model` 直接使用原文件。
+
+| 类别 / Class | 显示 / Label |
+|---|---|
+| `0` | `Stop` |
+| `1` | `Forward` |
+| `2` | `Backward` |
+| `3` | `Left` |
+| `4` | `Right` |
+| `5` | `Invalid` |
+
+串口仍由眼动确认或键盘控制。`motor-test` 是实际连接时的默认协议，眼控可发送前进与停止。选择修订版固件的 `--firmware wheelchair` 可使用转向、心跳和电池查询。
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py
@@ -376,12 +389,13 @@ wheerchair_mediapipe/
 │  │  ├─ landmarks_preview.py         Week 2: Face 478 points + hand 21 points visualization
 │  │  ├─ mediapipe_video.py           Detector setup, preprocessing, and per-frame inference
 │  │  ├─ eye_geometry.py              Eye indices, eye aspect ratio, and iris position
+│  │  ├─ hand_gesture_detector.py     ONNX gesture classes, boxes, and scores
 │  │  └─ landmark_drawing.py         Eye, face, and hand overlays
 │  ├─ interaction/
 │  │  ├─ blink_preview.py             Step 3: Blink calibration and counting (refactored, with tests)
 │  │  ├─ gaze_direction_preview.py    Step 4: Gaze direction selection (left / center / right)
 │  │  ├─ gaze_blink_confirm_demo.py   Step 5: Gaze selects direction + blink confirmation (restyled UI, wired to the serial layer)
-│  │  ├─ hand_eye_preview.py         Combined hand and eye preview with confirmed direction commands
+│  │  ├─ hand_eye_preview.py         Gesture and eye preview with gaze-confirmed direction commands
 │  │  ├─ keyboard_serial.py           Windows terminal input and direction commands
 │  │  ├─ *_state.py                   Blink, gaze direction, and blink confirmation state machines
 │  │  └─ wheelchair_control.py       Direction output and face-loss stop shared by both demos
@@ -422,14 +436,14 @@ Multi-contributor collaboration has started, with the following branch rules:
 
 ```text
 Camera / MP4 → video_input.py → BGR frame (H, W, 3)
-  → mediapipe_video.py → mirrored RGB image and millisecond timestamp → face / hand landmarks
-  ├─ Eyes → eye_geometry.py → eye aspect ratio / horizontal iris position → *_state.py
+  ├─ mediapipe_video.py → mirrored RGB image and millisecond timestamp → eye landmarks
+  │       → eye_geometry.py → eye aspect ratio / horizontal iris position → *_state.py
   │       → confirmed direction → WheelchairControl → WheelchairLink → simulation or serial
-  └─ Eye and hand landmarks → landmark_drawing.py → preview_ui.py → preview window
+  └─ hand_gesture_detector.py → class / score / box → preview and terminal
 Windows terminal keys → keyboard_serial.py → WheelchairLink → simulation or serial
 ```
 
-`common/paths.py` is the registry for models, recordings, and snapshots. The hand-eye demo detects the eyes and hands on the same frame and draws a skeleton from the hand landmarks. The original command bytes are documented in [Original motor-test firmware](#原始电机测试固件--original-motor-test-firmware).
+`common/paths.py` is the registry for models, recordings, and snapshots. The standalone `landmarks_preview.py` still renders MediaPipe hand skeletons. The command bytes are documented in [Original motor-test firmware](#原始电机测试固件--original-motor-test-firmware).
 
 ## Environment Setup
 
@@ -437,7 +451,7 @@ Requires Python 3.10 or above (development environment is 3.13 / 3.14).
 
 ```bash
 python -m venv venv
-venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pillow pyserial pytest
+venv\Scripts\python.exe -m pip install opencv-contrib-python mediapipe numpy pillow pyserial onnxruntime pytest
 ```
 
 In Git Bash, write `venv\Scripts\python.exe` as `venv/Scripts/python.exe`; the same applies below.
@@ -456,8 +470,11 @@ When starting the main gaze demo or hand and eye preview in a terminal, press En
 python .\src\interaction\gaze_blink_confirm_demo.py --video "C:\path\to\recording.mp4"
 ```
 
-The hand and eye preview runs both models on the same frame. It displays eye and iris landmarks, skeletons for up to two hands, gaze direction and blink count. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
-After gaze selection and blink confirmation, the terminal prints the command. Serial connections default to the original `motor-test` protocol, with forward and stop available from eye control. For the revised wheelchair controller, add `--firmware wheelchair` to use its turns, heartbeat and battery query. Hand detection is for display.
+The hand-eye preview runs MediaPipe eye tracking and `best.onnx` gesture detection from `gaze_wheelchair_pack` on the same frame. It draws gesture boxes, labels, and confidence scores, and logs class changes. Keep your eyes open and look at the centre for about three seconds to calibrate gaze and blinking.
+
+Copy the pack's `retinaface_arcface/best.onnx` to the local, Git-ignored `models/gesture_best.onnx`, or pass its path with `--gesture-model`. Classes `0`–`5` are Stop, Forward, Backward, Left, Right, and Invalid.
+
+Confirmed eye movements and keyboard input drive serial control. New serial connections default to `motor-test`, with forward and stop available from eye control. Select `--firmware wheelchair` on the revised controller for turning, heartbeat, and the battery query.
 
 ```powershell
 python .\src\interaction\hand_eye_preview.py

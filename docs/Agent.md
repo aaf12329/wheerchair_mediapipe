@@ -19,7 +19,7 @@
 | 路径 | 职责 |
 |---|---|
 | `src/camera/` | 摄像头与录像输入、摄像头预览和保存 |
-| `src/vision/` | MediaPipe 检测器、帧预处理、眼部指标和关键点绘制 |
+| `src/vision/` | MediaPipe 检测器、ONNX 手势分类、帧预处理、眼部指标和关键点绘制 |
 | `src/interaction/` | 预览入口、`*_state.py` 状态机、键盘和方向下发 |
 | `src/hardware/` | 输出模式、串口协议、心跳、电池状态与低电锁 |
 | `src/common/` | 公共路径、窗口、按键去抖和中文字体 |

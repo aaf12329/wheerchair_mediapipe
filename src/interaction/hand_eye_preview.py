@@ -1,11 +1,11 @@
-"""同屏预览手部和眼睛，并将经视线与眨眼确认的方向交给轮椅串口层。
+"""同屏识别手势和 MediaPipe 眼部关键点，眼动确认结果交给串口层。
 
 cli() → 选择模拟或实际串口 → main() 或 keyboard_serial.main()
-main() → 打开摄像头或录像 → create_face_hand_landmarkers()
-  每帧 → read_face_hand_frame() → 同帧的人脸与手部结果
+main() → HandGestureDetector() / create_face_landmarker() → 打开摄像头或录像
+  每帧 → read_detection_input() → MediaPipe 眼部关键点与 ONNX 手势分类
        → update_eyes() → 已有的眨眼与视线状态机
        → WheelchairControl.update() → WheelchairLink → 串口或模拟
-       → render_preview() → 眼部关键点、手部骨架和状态栏
+       → render_preview() → 眼部关键点、手势框和状态栏
        → pressed_key() → Q 退出 / S 停止 / C 重新校准 / I 反转左右
 """
 
@@ -23,7 +23,7 @@ if SRC_DIR not in sys.path:
 
 from camera.video_input import frame_delay_ms, open_camera as open_video_camera, open_video  # noqa: E402
 from common import preview_ui  # noqa: E402
-from common.paths import FACE_MODEL, HAND_MODEL  # noqa: E402
+from common.paths import FACE_MODEL, GESTURE_MODEL  # noqa: E402
 from hardware.serial_link import PROTOCOLS, WheelchairLink  # noqa: E402
 from hardware.serial_mode import select_serial_port  # noqa: E402
 from interaction import keyboard_serial  # noqa: E402
@@ -31,10 +31,11 @@ from interaction.blink_state import BlinkDetector  # noqa: E402
 from interaction.gaze_blink_state import GazeBlinkDetector  # noqa: E402
 from interaction.wheelchair_control import WheelchairControl  # noqa: E402
 from vision.eye_geometry import average_ear  # noqa: E402
-from vision.landmark_drawing import draw_eye_points, draw_hands, draw_iris_points  # noqa: E402
-from vision.mediapipe_video import create_face_hand_landmarkers, read_face_hand_frame  # noqa: E402
+from vision.hand_gesture_detector import HandGesture, HandGestureDetector  # noqa: E402
+from vision.landmark_drawing import draw_eye_points, draw_iris_points  # noqa: E402
+from vision.mediapipe_video import create_face_landmarker, read_detection_input  # noqa: E402
 
-WINDOW_NAME = "MediaPipe Hand and Eye Preview"
+WINDOW_NAME = "Hand Gestures and MediaPipe Eyes"
 CAMERA_INDEX = 0
 PREVIEW_WIDTH, PREVIEW_HEIGHT = 960, 540
 PANEL_HEIGHT = 128
@@ -61,8 +62,21 @@ def open_camera() -> cv2.VideoCapture:
     )
 
 
-def render_preview(frame, face, hand_result, blink_status, gaze_status, link_status):
-    """绘制眼部和手部关键点，在视频上方放置状态栏。"""
+def draw_gestures(frame, gestures: list[HandGesture]) -> None:
+    """把原图方向上的手势检测框映射到镜像预览图。"""
+    height, width = frame.shape[:2]
+    for gesture in gestures:
+        x1, y1, x2, y2 = gesture.box
+        left, top = round((1 - x2) * (width - 1)), round(y1 * (height - 1))
+        right, bottom = round((1 - x1) * (width - 1)), round(y2 * (height - 1))
+        color = (0, 255, 0)
+        cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+        cv2.putText(frame, f"{gesture.label} {gesture.confidence:.2f}", (left, max(16, top - 5)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
+
+
+def render_preview(frame, face, gestures, blink_status, gaze_status, link_status):
+    """绘制眼部、手势检测结果和视频上方的状态栏。"""
     height, width = frame.shape[:2]
     scale = min(PREVIEW_WIDTH / width, PREVIEW_HEIGHT / height)
     if scale != 1:
@@ -72,7 +86,7 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status, link_sta
     if face is not None:
         draw_eye_points(frame, face)
         draw_iris_points(frame, face)
-    draw_hands(frame, hand_result)
+    draw_gestures(frame, gestures)
 
     # 视频保持原宽高比，面板放在视频外，以免挡住关键点。
     side_padding = PREVIEW_WIDTH - frame.shape[1]
@@ -87,8 +101,9 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status, link_sta
         link_text = "模拟（串口未连接）"
     if link_status.is_low_battery:
         link_text += " / 低电锁定"
+    gesture_text = f"{gestures[0].label} {gestures[0].confidence:.2f}" if gestures else "--"
     return preview_ui.draw_chinese_status(frame, (
-        f"眼睛 {eye_text}  |  手部 {len(hand_result.hand_landmarks)} 只  |  {link_text}  |  指令 {link_status.intent or '--'}",
+        f"眼睛 {eye_text}  |  手势 {gesture_text}  |  {link_text}  |  指令 {link_status.intent or '--'}",
         f"视线 {gaze_text}  |  眨眼 {blink_status.blink_count} 次",
         gaze_status.message,
         "Q 退出  |  S 停止  |  C 重新校准  |  I 反转左右",
@@ -98,14 +113,18 @@ def render_preview(frame, face, hand_result, blink_status, gaze_status, link_sta
 # ============================ 3) 主流程 ============================
 
 
-def main(video: Path | None = None, *, serial_port: str | None = None, firmware: str | None = None) -> None:
-    """按同一输入帧驱动双模型、眼部判定、串口输出与窗口。"""
+def main(
+    video: Path | None = None, *, serial_port: str | None = None, firmware: str | None = None,
+    gesture_model: Path = GESTURE_MODEL,
+) -> None:
+    """对同一输入帧运行手势识别和眼动判定，再更新预览及串口。"""
     if video is not None and serial_port is not None:
         raise ValueError("录像模式使用模拟，不能同时指定串口。")
+    gesture_detector = HandGestureDetector(gesture_model)
     link = WheelchairLink(serial_port, firmware=firmware)
     capture, fps = (open_camera(), None) if video is None else open_video(video)
     try:
-        face_detector, hand_detector = create_face_hand_landmarkers(FACE_MODEL, HAND_MODEL)
+        face_detector = create_face_landmarker(FACE_MODEL)
         link.open()
         playback_started = time.perf_counter()
         started = playback_started if fps is None else 0.0
@@ -114,29 +133,36 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
         control = WheelchairControl(link)
         frame_count = 0
         key_available_at = 0.0
+        previous_gesture_class = None
         if link.connected:
             link.set_intent("停", now=started)
         elif link.last_error:
             print(f"串口未连接，已切到模拟模式。{link.last_error}")
         else:
             print("模拟模式，终端会显示模拟指令。")
-        print("手部与眼睛预览已启动。请睁眼看正中校准，点击窗口后按 Q 退出或 S 停止。")
+        print("手势与眼睛预览已启动。请睁眼看正中校准，点击窗口后按 Q 退出或 S 停止。")
 
         while True:
             video_time = frame_count / fps if fps is not None else None
-            result = read_face_hand_frame(
-                capture, face_detector, hand_detector, started, clock=time.perf_counter, video_time=video_time,
-            )
+            result = read_detection_input(capture, started, clock=time.perf_counter, video_time=video_time)
             if result is None:
                 if frame_count == 0:
                     raise RuntimeError(f"录像没有可读取的画面：{video}")
                 print("录像播放结束。")
                 break
-            frame, now, face_result, hand_result = result
+            frame, now, image, timestamp_ms = result
             frame_count += 1
+            face_result = face_detector.detect_for_video(image, timestamp_ms)
             face, blink_status, gaze_status = update_eyes(now, face_result, blink, gaze)
             link_status = control.update(now, gaze_status.state, gaze_status.active, face_present=face is not None)
-            preview = render_preview(frame, face, hand_result, blink_status, gaze_status, link_status)
+
+            # The source detector uses the unmirrored camera image.
+            gestures = gesture_detector.detect(cv2.flip(frame, 1))
+            primary = gestures[0] if gestures else None
+            if primary is not None and primary.class_id != previous_gesture_class:
+                print(f"[手势] {primary.class_id} {primary.label} {primary.confidence:.2f}", flush=True)
+            previous_gesture_class = primary.class_id if primary is not None else None
+            preview = render_preview(frame, face, gestures, blink_status, gaze_status, link_status)
             cv2.imshow(WINDOW_NAME, preview)
 
             if not preview_ui.window_is_alive(WINDOW_NAME):
@@ -166,12 +192,13 @@ def main(video: Path | None = None, *, serial_port: str | None = None, firmware:
 
 def cli() -> None:
     """解析命令行，必要时询问串口模式，然后启动键盘或视觉入口。"""
-    parser = ArgumentParser(description="MediaPipe 手部与眼睛集成预览")
+    parser = ArgumentParser(description="ONNX 手势与 MediaPipe 眼动集成预览")
     source = parser.add_mutually_exclusive_group()
     source.add_argument("--video", type=Path, help="在模拟模式下播放录像")
     source.add_argument("--keyboard", action="store_true", help="在 Windows 终端使用键盘控制，不打开摄像头")
     parser.add_argument("--serial-port", help="连接指定串口，例如 COM3")
     parser.add_argument("--firmware", choices=PROTOCOLS, help="固件协议，指定串口时默认 motor-test")
+    parser.add_argument("--gesture-model", type=Path, default=GESTURE_MODEL, help="手势模型 best.onnx 的路径")
     args = parser.parse_args()
     if args.video is not None and args.serial_port is not None:
         parser.error("录像模式使用模拟，不能同时指定串口。")
@@ -180,7 +207,7 @@ def cli() -> None:
     if args.keyboard:
         keyboard_serial.main(serial_port, firmware=args.firmware)
     else:
-        main(args.video, serial_port=serial_port, firmware=args.firmware)
+        main(args.video, serial_port=serial_port, firmware=args.firmware, gesture_model=args.gesture_model)
 
 
 if __name__ == "__main__":
