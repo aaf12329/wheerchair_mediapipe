@@ -1,3 +1,21 @@
+# Secrets and local configuration
+.env
+.env.*
+*.env
+!.env.example
+.ignore
+.zcodeignore
+
+# Camera recordings and snapshots
+/EyeWheelchairProject/data/raw_videos/
+/EyeWheelchairProject/data/snapshots/
+/EyeWheelchairProject/data/landmark_snapshots/
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -150,11 +168,11 @@ activemq-data/
 *.sage.py
 
 # Environments
-.env
 .envrc
 .venv
 env/
 venv/
+myvenv/
 ENV/
 env.bak/
 venv.bak/
